@@ -215,6 +215,26 @@ export function RifaDetailPage() {
     return allNumbers;
   }
 
+  function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error(`Falha ao carregar imagem: ${src}`));
+      image.src = src;
+    });
+  }
+
+  async function loadFirstAvailableImage(sources: string[]): Promise<HTMLImageElement | null> {
+    for (const source of sources) {
+      try {
+        return await loadImage(source);
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
   async function handleExportImage() {
     if (!id || !rifaData) {
       return;
@@ -223,179 +243,280 @@ export function RifaDetailPage() {
     setExporting(true);
     try {
       const allNumbers = await fetchAllNumbersForExport(id);
-      
-      // Criar canvas para desenhar a imagem
+      const sortedNumbers = [...allNumbers].sort((a, b) => Number(a.numero) - Number(b.numero));
+
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       if (!ctx) {
-        throw new Error("Não foi possível criar contexto do canvas");
+        throw new Error("Nao foi possivel criar contexto do canvas");
       }
 
-      // Configurações da imagem
-      const padding = 40;
-      const headerHeight = 280;
+      const padding = 34;
+      const headerHeight = 500;
+      const footerHeight = 720;
       const cols = 10;
-      const cardWidth = 100;
-      const cardHeight = 80;
-      const gap = 12;
-      const rows = Math.ceil(allNumbers.length / cols);
-      
-      canvas.width = padding * 2 + cols * cardWidth + (cols - 1) * gap;
-      canvas.height = padding * 2 + headerHeight + rows * cardHeight + (rows - 1) * gap;
+      const cardWidth = 76;
+      const cardHeight = 44;
+      const gap = 10;
+      const rows = Math.ceil(sortedNumbers.length / cols);
+      const gridWidth = cols * cardWidth + (cols - 1) * gap;
+      const canvasWidth = Math.max(980, padding * 2 + gridWidth);
+      const gridStartY = padding + headerHeight;
+      const gridHeight = rows * cardHeight + Math.max(0, rows - 1) * gap;
 
-      // Fundo branco
-      ctx.fillStyle = "#ffffff";
+      canvas.width = canvasWidth;
+      canvas.height = padding + headerHeight + gridHeight + footerHeight;
+
+      ctx.fillStyle = "#c8d2c6";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Título principal
-      ctx.fillStyle = "#1e293b";
-      ctx.font = "bold 42px Arial";
+      ctx.fillStyle = "#e8e4d9";
+      roundRect(ctx, 14, 14, canvas.width - 28, canvas.height - 28, 20);
+      ctx.fill();
+
+      ctx.strokeStyle = "#7f8f81";
+      ctx.lineWidth = 4;
+      roundRect(ctx, 14, 14, canvas.width - 28, canvas.height - 28, 20);
+      ctx.stroke();
+
+      ctx.globalAlpha = 0.12;
+      for (let i = 0; i < 8; i += 1) {
+        ctx.fillStyle = "#5f715f";
+        ctx.beginPath();
+        ctx.ellipse(120 + i * 90, 150 + (i % 2) * 30, 35, 120, Math.PI / 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      const date = new Date(rifaData.rifa.data_sorteio);
+      const day = Number.isNaN(date.getTime()) ? "--" : String(date.getDate()).padStart(2, "0");
+      const month = Number.isNaN(date.getTime())
+        ? "MES"
+        : date
+            .toLocaleDateString("pt-BR", { month: "short" })
+            .replace(".", "")
+            .toUpperCase();
+
+      const dateBubbleSize = 130;
+      const bubbleX = canvas.width - padding - dateBubbleSize;
+      const bubbleY = padding + 8;
+
+      ctx.fillStyle = "#8fa192";
+      ctx.beginPath();
+      ctx.arc(bubbleX + dateBubbleSize / 2, bubbleY + dateBubbleSize / 2, dateBubbleSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#6f8373";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(bubbleX + dateBubbleSize / 2, bubbleY + dateBubbleSize / 2, dateBubbleSize / 2 - 5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = "#f7f6f1";
       ctx.textAlign = "center";
-      ctx.fillText(rifaData.rifa.descricao, canvas.width / 2, padding + 40);
+      ctx.font = "bold 26px Trebuchet MS";
+      ctx.fillText("SORTEIO", bubbleX + dateBubbleSize / 2, bubbleY + 34);
+      ctx.font = "bold 44px Trebuchet MS";
+      ctx.fillText(day, bubbleX + dateBubbleSize / 2, bubbleY + 77);
+      ctx.font = "bold 21px Trebuchet MS";
+      ctx.fillText(month, bubbleX + dateBubbleSize / 2, bubbleY + 105);
 
-      // Data de geração
-      ctx.fillStyle = "#64748b";
-      ctx.font = "16px Arial";
-      ctx.fillText(
-        `Gerado em ${new Date().toLocaleString("pt-BR")}`,
-        canvas.width / 2,
-        padding + 75
-      );
+      ctx.fillStyle = "#2f3a33";
+      ctx.font = "58px Georgia";
+      ctx.textAlign = "center";
+      ctx.fillText("Casamento", canvas.width / 2, padding + 96);
+      ctx.fillText("Samara e Juan", canvas.width / 2, padding + 168);
 
-      // Informações em cards
-      const infoY = padding + 110;
-      const infoBoxWidth = (canvas.width - padding * 2 - gap * 2) / 3;
-      
-      const infoData = [
-        { label: "Data do Sorteio", value: formatDate(rifaData.rifa.data_sorteio) },
-        { label: "Valor do Prêmio", value: formatCurrency(rifaData.rifa.valor_premio) },
-        { label: "Preço por Número", value: formatCurrency(rifaData.rifa.valor_numero) },
+      ctx.fillStyle = "#4f5f54";
+      ctx.font = "34px Georgia";
+      ctx.fillText("Participe da Rifa e ajude-nos", canvas.width / 2, padding + 230);
+      ctx.fillText("a realizar esse sonho!", canvas.width / 2, padding + 272);
+
+      const instructionTitleY = padding + 322;
+      ctx.fillStyle = "#7f9583";
+      roundRect(ctx, canvas.width / 2 - 150, instructionTitleY - 28, 300, 46, 24);
+      ctx.fill();
+      ctx.strokeStyle = "#5f7261";
+      ctx.lineWidth = 2;
+      roundRect(ctx, canvas.width / 2 - 150, instructionTitleY - 28, 300, 46, 24);
+      ctx.stroke();
+
+      ctx.fillStyle = "#f6f4ee";
+      ctx.font = "bold 24px Trebuchet MS";
+      ctx.fillText("COMO FUNCIONA?", canvas.width / 2, instructionTitleY + 2);
+
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#33423a";
+      ctx.font = "21px Trebuchet MS";
+      const infoRowTop = padding + 354;
+      const instructionX = padding + 24;
+      const instructionStartY = infoRowTop + 34;
+      const instructions = [
+        "1. Escolha entre os numeros disponiveis abaixo.",
+        "2. Pague o valor da rifa por numero escolhido.",
+        "3. Envie o comprovante e seus dados.",
+        "4. Aguarde o sorteio e boa sorte!",
       ];
-
-      infoData.forEach((info, index) => {
-        const x = padding + index * (infoBoxWidth + gap);
-        
-        // Box
-        ctx.fillStyle = "#f1f5f9";
-        ctx.strokeStyle = "#cbd5e1";
-        ctx.lineWidth = 2;
-        roundRect(ctx, x, infoY, infoBoxWidth, 60, 8);
-        ctx.fill();
-        ctx.stroke();
-        
-        // Label
-        ctx.fillStyle = "#64748b";
-        ctx.font = "14px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText(info.label, x + infoBoxWidth / 2, infoY + 25);
-        
-        // Value
-        ctx.fillStyle = "#1e293b";
-        ctx.font = "bold 18px Arial";
-        ctx.fillText(info.value, x + infoBoxWidth / 2, infoY + 48);
+      instructions.forEach((line, index) => {
+        ctx.fillText(line, instructionX, instructionStartY + index * 30);
       });
 
-      // Resumo
-      const soldCount = allNumbers.filter(n => n.pessoa_id).length;
-      const availableCount = allNumbers.length - soldCount;
-      
-      const resumoY = infoY + 80;
-      const resumoData = [
-        { label: `Disponíveis: ${availableCount}`, color: "#10b981", bg: "#d1fae5" },
-        { label: `Vendidos: ${soldCount}`, color: "#f59e0b", bg: "#fef3c7" },
-        { label: `Total: ${allNumbers.length}`, color: "#64748b", bg: "#f1f5f9" },
-      ];
+      const priceCardWidth = 300;
+      const priceCardHeight = 132;
+      const priceCardX = canvas.width - padding - priceCardWidth;
+      const priceCardY = infoRowTop;
 
-      const resumoBoxWidth = 180;
-      const totalResumoWidth = resumoData.length * resumoBoxWidth + (resumoData.length - 1) * gap;
-      const resumoStartX = (canvas.width - totalResumoWidth) / 2;
+      ctx.fillStyle = "#f3f0e7";
+      ctx.strokeStyle = "#90a08f";
+      ctx.lineWidth = 2;
+      roundRect(ctx, priceCardX, priceCardY, priceCardWidth, priceCardHeight, 16);
+      ctx.fill();
+      ctx.stroke();
 
-      resumoData.forEach((item, index) => {
-        const x = resumoStartX + index * (resumoBoxWidth + gap);
-        
-        ctx.fillStyle = item.bg;
-        ctx.strokeStyle = item.color;
-        ctx.lineWidth = 2;
-        roundRect(ctx, x, resumoY, resumoBoxWidth, 45, 8);
-        ctx.fill();
-        ctx.stroke();
-        
-        ctx.fillStyle = item.color;
-        ctx.font = "bold 16px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText(item.label, x + resumoBoxWidth / 2, resumoY + 28);
-      });
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#3d4c42";
+      ctx.font = "bold 22px Trebuchet MS";
+      ctx.fillText("Valor da Rifa", priceCardX + 16, priceCardY + 34);
+      ctx.font = "bold 34px Trebuchet MS";
+      ctx.fillText(formatCurrency(rifaData.rifa.valor_numero), priceCardX + 16, priceCardY + 80);
+      ctx.font = "17px Trebuchet MS";
+      ctx.fillText("por numero", priceCardX + 16, priceCardY + 110);
 
-      // Desenhar grade de números
-      const gridStartY = padding + headerHeight;
-      
-      allNumbers.forEach((numero, index) => {
+      const gridStartX = (canvas.width - gridWidth) / 2;
+      ctx.textAlign = "center";
+
+      sortedNumbers.forEach((numero, index) => {
         const col = index % cols;
         const row = Math.floor(index / cols);
-        const x = padding + col * (cardWidth + gap);
+        const x = gridStartX + col * (cardWidth + gap);
         const y = gridStartY + row * (cardHeight + gap);
         const sold = Boolean(numero.pessoa_id);
 
-        // Card background e borda
-        ctx.fillStyle = sold ? "#fef3c7" : "#d1fae5";
-        ctx.strokeStyle = sold ? "#f59e0b" : "#10b981";
-        ctx.lineWidth = sold ? 3 : 2;
-        roundRect(ctx, x, y, cardWidth, cardHeight, 8);
+        ctx.fillStyle = sold ? "#bac4b4" : "#f6f5f0";
+        ctx.strokeStyle = sold ? "#7e8f7a" : "#9fae9b";
+        ctx.lineWidth = 2;
+        roundRect(ctx, x, y, cardWidth, cardHeight, 20);
         ctx.fill();
         ctx.stroke();
 
-        // Número
-        ctx.fillStyle = sold ? "#92400e" : "#065f46";
-        ctx.font = "bold 24px monospace";
-        ctx.textAlign = "center";
-        ctx.fillText(numero.numero, x + cardWidth / 2, y + 32);
+        ctx.fillStyle = sold ? "#596a59" : "#3f4f42";
+        ctx.font = "bold 24px Trebuchet MS";
+        ctx.fillText(numero.numero, x + cardWidth / 2, y + 30);
 
-        // Status ou nome
-        ctx.fillStyle = sold ? "#92400e" : "#065f46";
-        ctx.font = "bold 11px Arial";
-        
-        if (sold && numero.nome) {
-          // Quebrar nome em linhas se for muito longo
-          const maxWidth = cardWidth - 8;
-          const words = numero.nome.split(" ");
-          let line = "";
-          let lineY = y + 52;
-          
-          for (const word of words) {
-            const testLine = line + (line ? " " : "") + word;
-            const metrics = ctx.measureText(testLine);
-            
-            if (metrics.width > maxWidth && line) {
-              ctx.fillText(line, x + cardWidth / 2, lineY);
-              line = word;
-              lineY += 13;
-              if (lineY > y + cardHeight - 8) break; // Evitar overflow
-            } else {
-              line = testLine;
-            }
-          }
-          if (line && lineY <= y + cardHeight - 8) {
-            ctx.fillText(line, x + cardWidth / 2, lineY);
-          }
-        } else {
-          ctx.fillText("LIVRE", x + cardWidth / 2, y + 58);
+        if (sold) {
+          ctx.fillStyle = "#4d5c4d";
+          ctx.font = "bold 12px Trebuchet MS";
+          ctx.fillText("RESERVADO", x + cardWidth / 2, y + 41);
         }
       });
 
-      // Converter canvas para blob e fazer download
+      const footerY = gridStartY + gridHeight;
+      
+      ctx.fillStyle = "#7d8d7c";
+      roundRect(ctx, canvas.width / 2 - 270, footerY + 24, 540, 84, 32);
+      ctx.fill();
+
+      ctx.fillStyle = "#f8f7f2";
+      ctx.font = "bold 27px Trebuchet MS";
+      ctx.textAlign = "center";
+      ctx.fillText(`PREMIO: ${formatCurrency(rifaData.rifa.valor_premio)}`, canvas.width / 2, footerY + 60);
+      ctx.font = "bold 20px Trebuchet MS";
+      ctx.fillText(`ou ${rifaData.rifa.descricao || "descricao da rifa"}`, canvas.width / 2, footerY + 90);
+
+      ctx.fillStyle = "#dce1d6";
+      roundRect(ctx, 28, footerY + 124, canvas.width - 56, footerHeight - 154, 22);
+      ctx.fill();
+
+      const caricature = await loadFirstAvailableImage([
+        "/caricatura-casal.png",
+        "/casal-caricatura.png",
+        "/assets/casal-caricatura.png",
+      ]);
+
+      const contactCardWidth = 280;
+      const contactCardHeight = 220;
+      const gapBetween = 40;
+      const contentStartY = footerY + 148;
+      const availableWidth = canvas.width - 56 - 48;
+      const imageMaxWidth = availableWidth - contactCardWidth - gapBetween;
+      const imageMaxHeight = footerHeight - 160;
+
+      let caricatureWidth = 0;
+      let caricatureHeight = 0;
+      let caricatureX = 0;
+      let caricatureY = 0;
+
+      if (caricature) {
+        const ratio = Math.min(imageMaxWidth / caricature.width, imageMaxHeight / caricature.height);
+        caricatureWidth = caricature.width * ratio;
+        caricatureHeight = caricature.height * ratio;
+      }
+
+      const totalContentWidth = contactCardWidth + gapBetween + caricatureWidth;
+      const contentStartX = (canvas.width - totalContentWidth) / 2;
+      
+      const contactCardX = contentStartX;
+      const contactCardY = contentStartY + (imageMaxHeight - contactCardHeight) / 2;
+
+      ctx.fillStyle = "#f3f0e7";
+      ctx.strokeStyle = "#90a08f";
+      ctx.lineWidth = 2;
+      roundRect(ctx, contactCardX, contactCardY, contactCardWidth, contactCardHeight, 16);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#3d4c42";
+      ctx.font = "bold 22px Trebuchet MS";
+      ctx.fillText("Contato Juan (Noivo)", contactCardX + contactCardWidth / 2, contactCardY + 38);
+      ctx.font = "20px Trebuchet MS";
+      ctx.fillText("(19) 99296-1995", contactCardX + contactCardWidth / 2, contactCardY + 70);
+
+      ctx.strokeStyle = "#b0b8af";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(contactCardX + 24, contactCardY + 92);
+      ctx.lineTo(contactCardX + contactCardWidth - 24, contactCardY + 92);
+      ctx.stroke();
+
+      ctx.fillStyle = "#3d4c42";
+      ctx.font = "bold 22px Trebuchet MS";
+      ctx.fillText("Chave Pix", contactCardX + contactCardWidth / 2, contactCardY + 124);
+      ctx.font = "20px Trebuchet MS";
+      ctx.fillText("(19) 99296-1995", contactCardX + contactCardWidth / 2, contactCardY + 158);
+      ctx.font = "18px Trebuchet MS";
+      ctx.fillStyle = "#5f6f5e";
+      ctx.fillText("Nubank", contactCardX + contactCardWidth / 2, contactCardY + 188);
+
+      caricatureX = contactCardX + contactCardWidth + gapBetween;
+      caricatureY = contentStartY + (imageMaxHeight - caricatureHeight) / 2;
+
+      if (caricature) {
+        ctx.shadowColor = "rgba(48, 63, 50, 0.18)";
+        ctx.shadowBlur = 24;
+        ctx.drawImage(caricature, caricatureX, caricatureY, caricatureWidth, caricatureHeight);
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.fillStyle = "#5f6f5e";
+        ctx.font = "bold 18px Trebuchet MS";
+        ctx.textAlign = "center";
+        ctx.fillText("Adicione a caricatura em", caricatureX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 - 10);
+        ctx.fillText("/frontend/public/caricatura-casal.png", caricatureX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 + 15);
+      }
+
       canvas.toBlob((blob) => {
         if (!blob) {
           throw new Error("Erro ao gerar imagem");
         }
-        
+
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
         link.download = `rifa-${rifaData.rifa.descricao.replace(/\s+/g, "-").toLowerCase()}-${Date.now()}.png`;
         link.click();
         URL.revokeObjectURL(url);
-        
-        notify({ title: "Imagem exportada com sucesso", kind: "success" });
+
+        notify({ title: "Modelo da rifa exportado com sucesso", kind: "success" });
       }, "image/png");
 
     } catch (error) {
