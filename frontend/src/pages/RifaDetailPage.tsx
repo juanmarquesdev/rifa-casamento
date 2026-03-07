@@ -324,11 +324,11 @@ export function RifaDetailPage() {
       ctx.fillStyle = "#2f3a33";
       ctx.font = "58px Georgia";
       ctx.textAlign = "center";
-      ctx.fillText("Casamento", canvas.width / 2, padding + 96);
+      ctx.fillText("Rifa Casamento", canvas.width / 2, padding + 96);
       ctx.fillText("Samara e Juan", canvas.width / 2, padding + 168);
 
       ctx.fillStyle = "#4f5f54";
-      ctx.font = "34px Georgia";
+      ctx.font = "30px Georgia";
       ctx.fillText("Participe da Rifa e ajude-nos", canvas.width / 2, padding + 230);
       ctx.fillText("a realizar esse sonho!", canvas.width / 2, padding + 272);
 
@@ -423,8 +423,12 @@ export function RifaDetailPage() {
       ctx.font = "bold 20px Trebuchet MS";
       ctx.fillText(`ou ${rifaData.rifa.descricao || "descricao da rifa"}`, canvas.width / 2, footerY + 90);
 
+      const footerPanelX = 28;
+      const footerPanelWidth = canvas.width - 56;
+      const footerPanelRight = footerPanelX + footerPanelWidth;
+
       ctx.fillStyle = "#dce1d6";
-      roundRect(ctx, 28, footerY + 124, canvas.width - 56, footerHeight - 154, 22);
+      roundRect(ctx, footerPanelX, footerY + 124, footerPanelWidth, footerHeight - 154, 22);
       ctx.fill();
 
       const caricature = await loadFirstAvailableImage([
@@ -433,8 +437,8 @@ export function RifaDetailPage() {
         "/assets/casal-caricatura.png",
       ]);
 
-      const contactCardWidth = 280;
-      const contactCardHeight = 220;
+      const contactCardWidth = 360;
+      const contactCardHeight = 280;
       const gapBetween = 40;
       const contentStartY = footerY + 148;
       const availableWidth = canvas.width - 56 - 48;
@@ -452,10 +456,8 @@ export function RifaDetailPage() {
         caricatureHeight = caricature.height * ratio;
       }
 
-      const totalContentWidth = contactCardWidth + gapBetween + caricatureWidth;
-      const contentStartX = (canvas.width - totalContentWidth) / 2;
-      
-      const contactCardX = contentStartX;
+      const imageAreaX = footerPanelRight - imageMaxWidth;
+      const contactCardX = imageAreaX - gapBetween - contactCardWidth;
       const contactCardY = contentStartY + (imageMaxHeight - contactCardHeight) / 2;
 
       ctx.fillStyle = "#f3f0e7";
@@ -467,41 +469,38 @@ export function RifaDetailPage() {
 
       ctx.textAlign = "center";
       ctx.fillStyle = "#3d4c42";
-      ctx.font = "bold 22px Trebuchet MS";
-      ctx.fillText("Contato Juan (Noivo)", contactCardX + contactCardWidth / 2, contactCardY + 38);
-      ctx.font = "20px Trebuchet MS";
-      ctx.fillText("(19) 99296-1995", contactCardX + contactCardWidth / 2, contactCardY + 70);
+      ctx.font = "bold 26px Trebuchet MS";
+      ctx.fillText("Contato Juan (Noivo)", contactCardX + contactCardWidth / 2, contactCardY + 48);
+      ctx.font = "24px Trebuchet MS";
+      ctx.fillText("(19) 99296-1995", contactCardX + contactCardWidth / 2, contactCardY + 88);
 
       ctx.strokeStyle = "#b0b8af";
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(contactCardX + 24, contactCardY + 92);
-      ctx.lineTo(contactCardX + contactCardWidth - 24, contactCardY + 92);
+      ctx.moveTo(contactCardX + 30, contactCardY + 118);
+      ctx.lineTo(contactCardX + contactCardWidth - 30, contactCardY + 118);
       ctx.stroke();
 
       ctx.fillStyle = "#3d4c42";
-      ctx.font = "bold 22px Trebuchet MS";
-      ctx.fillText("Chave Pix", contactCardX + contactCardWidth / 2, contactCardY + 124);
-      ctx.font = "20px Trebuchet MS";
-      ctx.fillText("(19) 99296-1995", contactCardX + contactCardWidth / 2, contactCardY + 158);
-      ctx.font = "18px Trebuchet MS";
+      ctx.font = "bold 26px Trebuchet MS";
+      ctx.fillText("Chave Pix", contactCardX + contactCardWidth / 2, contactCardY + 162);
+      ctx.font = "24px Trebuchet MS";
+      ctx.fillText("(19) 99296-1995", contactCardX + contactCardWidth / 2, contactCardY + 202);
+      ctx.font = "21px Trebuchet MS";
       ctx.fillStyle = "#5f6f5e";
-      ctx.fillText("Nubank", contactCardX + contactCardWidth / 2, contactCardY + 188);
+      ctx.fillText("Nubank", contactCardX + contactCardWidth / 2, contactCardY + 238);
 
-      caricatureX = contactCardX + contactCardWidth + gapBetween;
+      caricatureX = footerPanelRight - caricatureWidth;
       caricatureY = contentStartY + (imageMaxHeight - caricatureHeight) / 2;
 
       if (caricature) {
-        ctx.shadowColor = "rgba(48, 63, 50, 0.18)";
-        ctx.shadowBlur = 24;
         ctx.drawImage(caricature, caricatureX, caricatureY, caricatureWidth, caricatureHeight);
-        ctx.shadowBlur = 0;
       } else {
         ctx.fillStyle = "#5f6f5e";
         ctx.font = "bold 18px Trebuchet MS";
         ctx.textAlign = "center";
-        ctx.fillText("Adicione a caricatura em", caricatureX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 - 10);
-        ctx.fillText("/frontend/public/caricatura-casal.png", caricatureX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 + 15);
+        ctx.fillText("Adicione a caricatura em", imageAreaX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 - 10);
+        ctx.fillText("/frontend/public/caricatura-casal.png", imageAreaX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 + 15);
       }
 
       canvas.toBlob((blob) => {
