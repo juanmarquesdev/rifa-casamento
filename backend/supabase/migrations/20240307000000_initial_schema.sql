@@ -1,9 +1,6 @@
--- Extensão para gerar UUIDs
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- Tabela de rifas
 CREATE TABLE rifas (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     descricao TEXT NOT NULL,
     valor_premio DECIMAL(10, 2) NOT NULL,
     valor_numero DECIMAL(10, 2) NOT NULL,
@@ -18,7 +15,7 @@ CREATE TABLE rifas (
 
 -- Tabela de pessoas
 CREATE TABLE pessoas (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nome TEXT NOT NULL,
     telefone TEXT NOT NULL,
     criada_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -28,7 +25,7 @@ CREATE TABLE pessoas (
 
 -- Tabela de números da rifa
 CREATE TABLE numeros_rifa (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     rifa_id UUID NOT NULL REFERENCES rifas(id) ON DELETE CASCADE,
     numero TEXT NOT NULL,
     pessoa_id UUID REFERENCES pessoas(id) ON DELETE
@@ -44,7 +41,7 @@ CREATE TABLE numeros_rifa (
 
 -- Tabela de sorteios
 CREATE TABLE sorteios (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     rifa_id UUID NOT NULL UNIQUE REFERENCES rifas(id) ON DELETE CASCADE,
     numero_rifa_id UUID NOT NULL REFERENCES numeros_rifa(id) ON DELETE RESTRICT,
     numero TEXT NOT NULL,
@@ -90,8 +87,6 @@ UPDATE
     ON numeros_rifa FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 
 -- Políticas de segurança RLS (Row Level Security)
--- Por enquanto, vamos permitir acesso total para desenvolvimento
--- Você pode refiná-las depois conforme as necesisidades de autenticação
 ALTER TABLE
     rifas ENABLE ROW LEVEL SECURITY;
 
