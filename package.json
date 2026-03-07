@@ -22,5 +22,8 @@
   "homepage": "https://github.com/juanmarquesdev/rifa-casamento#readme",
   "devDependencies": {
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "supabase-cli": "^0.0.21"
   }
 }

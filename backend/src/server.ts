@@ -1,7 +1,7 @@
 import cors from "cors";
 import express, { type Request, type Response } from "express";
 import { v4 as uuidv4 } from "uuid";
-import db from "./db";
+import { supabase } from "./db";
 
 type PessoaPayload = {
   nome: string;
@@ -58,7 +58,7 @@ function format4Digits(value: number): string {
   return String(value).padStart(4, "0");
 }
 
-function getOrCreatePessoa(payload: PessoaPayload): string {
+async function getOrCreatePessoa(payload: PessoaPayload): Promise<string> {
   const nome = trimText(payload.nome);
   const telefone = trimText(payload.telefone);
 
@@ -66,30 +66,47 @@ function getOrCreatePessoa(payload: PessoaPayload): string {
     throw new Error("Nome e telefone sao obrigatorios para pessoa.");
   }
 
-  const existing = db
-    .prepare("SELECT id FROM pessoas WHERE nome = ? AND telefone = ?")
-    .get(nome, telefone) as { id: string } | undefined;
+  const { data: existing, error: searchError } = await supabase
+    .from("pessoas")
+    .select("id")
+    .eq("nome", nome)
+    .eq("telefone", telefone)
+    .single();
 
-  if (existing) {
+  if (existing && !searchError) {
     return existing.id;
   }
 
   const pessoaId = uuidv4();
-  db.prepare(
-    "INSERT INTO pessoas (id, nome, telefone, criada_em, atualizada_em) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-  ).run(pessoaId, nome, telefone);
+  const { error: insertError } = await supabase
+    .from("pessoas")
+    .insert({
+      id: pessoaId,
+      nome,
+      telefone,
+    });
+
+  if (insertError) {
+    throw new Error(`Erro ao criar pessoa: ${insertError.message}`);
+  }
 
   return pessoaId;
 }
 
-function resolvePessoaId(input: { pessoaId?: unknown; nome?: unknown; telefone?: unknown }): string {
+async function resolvePessoaId(input: {
+  pessoaId?: unknown;
+  nome?: unknown;
+  telefone?: unknown;
+}): Promise<string> {
   const pessoaId = trimText(input.pessoaId);
   if (pessoaId) {
-    const pessoa = db
-      .prepare("SELECT id FROM pessoas WHERE id = ?")
-      .get(pessoaId) as { id: string } | undefined;
+    const { data: pessoa, error } = await supabase
+      .from("pessoas")
+      .select("id")
+      .eq("id", pessoaId)
+      .single();
 
-    if (!pessoa) {
+    if (error || !pessoa) {
       throw new Error("Pessoa selecionada nao encontrada.");
     }
 
@@ -102,7 +119,11 @@ function resolvePessoaId(input: { pessoaId?: unknown; nome?: unknown; telefone?:
   });
 }
 
-function calcularPlanejamento(valorPremio: number, valorNumero: number, lucroDesejado: number): {
+function calcularPlanejamento(
+  valorPremio: number,
+  valorNumero: number,
+  lucroDesejado: number
+): {
   faturamentoAlvo: number;
   quantidadeNumeros: number;
 } {
@@ -110,13 +131,16 @@ function calcularPlanejamento(valorPremio: number, valorNumero: number, lucroDes
   const quantidadeNumeros = Math.ceil(faturamentoAlvo / valorNumero);
   if (quantidadeNumeros > 9000) {
     throw new Error(
-      "A quantidade de numeros necessaria ultrapassa o limite de 9000 para 4 digitos. Ajuste valor do numero ou meta de lucro.",
+      "A quantidade de numeros necessaria ultrapassa o limite de 9000 para 4 digitos. Ajuste valor do numero ou meta de lucro."
     );
   }
   return { faturamentoAlvo, quantidadeNumeros };
 }
 
-function gerarNumerosAleatorios4Digitos(quantidade: number, existentes: Set<string> = new Set()): string[] {
+function gerarNumerosAleatorios4Digitos(
+  quantidade: number,
+  existentes: Set<string> = new Set()
+): string[] {
   const pool: string[] = [];
   for (let i = 1000; i <= 9999; i += 1) {
     const numero = format4Digits(i);
@@ -126,7 +150,9 @@ function gerarNumerosAleatorios4Digitos(quantidade: number, existentes: Set<stri
   }
 
   if (quantidade > pool.length) {
-    throw new Error("Nao ha numeros de 4 digitos suficientes para gerar a quantidade desejada.");
+    throw new Error(
+      "Nao ha numeros de 4 digitos suficientes para gerar a quantidade desejada."
+    );
   }
 
   for (let i = pool.length - 1; i > 0; i -= 1) {
@@ -139,7 +165,7 @@ function gerarNumerosAleatorios4Digitos(quantidade: number, existentes: Set<stri
   return pool.slice(0, quantidade);
 }
 
-function getRifaOrThrow(rifaId: string): {
+async function getRifaOrThrow(rifaId: string): Promise<{
   id: string;
   descricao: string;
   valor_premio: number;
@@ -149,39 +175,26 @@ function getRifaOrThrow(rifaId: string): {
   quantidade_numeros: number;
   data_sorteio: string;
   status: string;
-} {
-  const rifa = db
-    .prepare(
+}> {
+  const { data: rifa, error } = await supabase
+    .from("rifas")
+    .select(
       `
-      SELECT
-        id,
-        descricao,
-        valor_premio,
-        valor_numero,
-        lucro_desejado,
-        faturamento_alvo,
-        quantidade_numeros,
-        data_sorteio,
-        status
-      FROM rifas
-      WHERE id = ?
-    `,
+      id,
+      descricao,
+      valor_premio,
+      valor_numero,
+      lucro_desejado,
+      faturamento_alvo,
+      quantidade_numeros,
+      data_sorteio,
+      status
+    `
     )
-    .get(rifaId) as
-    | {
-        id: string;
-        descricao: string;
-        valor_premio: number;
-        valor_numero: number;
-        lucro_desejado: number;
-        faturamento_alvo: number;
-        quantidade_numeros: number;
-        data_sorteio: string;
-        status: string;
-      }
-    | undefined;
+    .eq("id", rifaId)
+    .single();
 
-  if (!rifa) {
+  if (error || !rifa) {
     throw new Error("Rifa nao encontrada.");
   }
 
@@ -192,178 +205,172 @@ app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-app.get("/api/dashboard", (_req: Request, res: Response) => {
-  const totals = db
-    .prepare(
-      `
-      SELECT
-        COUNT(*) AS total_rifas,
-        SUM(CASE WHEN status = 'ativa' THEN 1 ELSE 0 END) AS rifas_ativas,
-        SUM(CASE WHEN status = 'sorteada' THEN 1 ELSE 0 END) AS rifas_sorteadas,
-        COALESCE(SUM(faturamento_alvo), 0) AS faturamento_alvo_geral,
-        COALESCE(SUM(valor_premio), 0) AS premios_geral
-      FROM rifas
-    `,
-    )
-    .get() as
-    | {
-        total_rifas: number | null;
-        rifas_ativas: number | null;
-        rifas_sorteadas: number | null;
-        faturamento_alvo_geral: number | null;
-        premios_geral: number | null;
-      }
-    | undefined;
+app.get("/api/dashboard", async (_req: Request, res: Response) => {
+  try {
+    // Totais de rifas
+    const { data: rifasData, error: rifasError } = await supabase
+      .from("rifas")
+      .select("id, status, faturamento_alvo, valor_premio");
 
-  const arrecadado = db
-    .prepare(
-      `
-      SELECT COALESCE(SUM(COALESCE(n.valor_pago, r.valor_numero)), 0) AS arrecadado_geral
-      FROM numeros_rifa n
-      INNER JOIN rifas r ON r.id = n.rifa_id
-      WHERE n.pago = 1
-    `,
-    )
-    .get() as { arrecadado_geral: number | null } | undefined;
+    if (rifasError) throw rifasError;
 
-  res.json({
-    totais: {
-      totalRifas: Number(totals?.total_rifas ?? 0),
-      rifasAtivas: Number(totals?.rifas_ativas ?? 0),
-      rifasSorteadas: Number(totals?.rifas_sorteadas ?? 0),
-      faturamentoAlvoGeral: Number(totals?.faturamento_alvo_geral ?? 0),
-      premiosGeral: Number(totals?.premios_geral ?? 0),
-      arrecadadoGeral: Number(arrecadado?.arrecadado_geral ?? 0),
-    },
-  });
-});
+    const totalRifas = rifasData?.length || 0;
+    const rifasAtivas = rifasData?.filter((r) => r.status === "ativa").length || 0;
+    const rifasSorteadas = rifasData?.filter((r) => r.status === "sorteada").length || 0;
+    const faturamentoAlvoGeral =
+      rifasData?.reduce((sum, r) => sum + Number(r.faturamento_alvo || 0), 0) || 0;
+    const premiosGeral =
+      rifasData?.reduce((sum, r) => sum + Number(r.valor_premio || 0), 0) || 0;
 
-app.get("/api/rifas", (req: Request, res: Response) => {
-  const { page, pageSize, offset } = parsePagination(req);
-  const search = trimText(req.query.search);
+    // Arrecadado total
+    const { data: numerosData, error: numerosError } = await supabase
+      .from("numeros_rifa")
+      .select("valor_pago, pago, rifas!inner(valor_numero)")
+      .eq("pago", true);
 
-  const where = search ? "WHERE r.descricao LIKE ?" : "";
-  const params: unknown[] = [];
-  if (search) {
-    params.push(`%${search}%`);
+    if (numerosError) throw numerosError;
+
+    const arrecadadoGeral =
+      numerosData?.reduce((sum, n: any) => {
+        const valor = n.valor_pago || n.rifas?.valor_numero || 0;
+        return sum + Number(valor);
+      }, 0) || 0;
+
+    res.json({
+      totais: {
+        totalRifas,
+        rifasAtivas,
+        rifasSorteadas,
+        faturamentoAlvoGeral,
+        premiosGeral,
+        arrecadadoGeral,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: (error as Error).message });
   }
-
-  const totalRow = db.prepare(`SELECT COUNT(*) AS total FROM rifas r ${where}`).get(...params) as {
-    total: number;
-  };
-
-  const rows = db
-    .prepare(
-      `
-      SELECT
-        r.id,
-        r.descricao,
-        r.valor_premio,
-        r.valor_numero,
-        r.lucro_desejado,
-        r.faturamento_alvo,
-        r.quantidade_numeros,
-        r.data_sorteio,
-        r.status,
-        r.criada_em,
-        COUNT(n.id) AS total_numeros,
-        SUM(CASE WHEN n.pessoa_id IS NOT NULL THEN 1 ELSE 0 END) AS vendidos,
-        SUM(CASE WHEN n.pessoa_id IS NULL THEN 1 ELSE 0 END) AS disponiveis,
-        COALESCE(SUM(CASE WHEN n.pago = 1 THEN COALESCE(n.valor_pago, r.valor_numero) ELSE 0 END), 0) AS total_arrecadado,
-        CASE
-          WHEN COALESCE(SUM(CASE WHEN n.pago = 1 THEN COALESCE(n.valor_pago, r.valor_numero) ELSE 0 END), 0) >= r.faturamento_alvo THEN 1
-          ELSE 0
-        END AS atingiu_meta
-      FROM rifas r
-      LEFT JOIN numeros_rifa n ON n.rifa_id = r.id
-      ${where}
-      GROUP BY r.id
-      ORDER BY r.criada_em DESC
-      LIMIT ? OFFSET ?
-    `,
-    )
-    .all(...params, pageSize, offset);
-
-  res.json({
-    data: rows,
-    pagination: {
-      page,
-      pageSize,
-      total: Number(totalRow.total),
-      totalPages: Math.ceil(Number(totalRow.total) / pageSize),
-    },
-  });
 });
 
-app.post("/api/rifas", (req: Request, res: Response) => {
+app.get("/api/rifas", async (req: Request, res: Response) => {
+  try {
+    const { page, pageSize, offset } = parsePagination(req);
+    const search = trimText(req.query.search);
+
+    let query = supabase
+      .from("rifas")
+      .select(
+        `
+        *,
+        numeros:numeros_rifa(id, pessoa_id, pago, valor_pago)
+      `,
+        { count: "exact" }
+      )
+      .order("criada_em", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+
+    if (search) {
+      query = query.ilike("descricao", `%${search}%`);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    const rifasComResumo = data?.map((rifa: any) => {
+      const totalNumeros = rifa.numeros?.length || 0;
+      const vendidos =
+        rifa.numeros?.filter((n: any) => n.pessoa_id !== null).length || 0;
+      const disponiveis = totalNumeros - vendidos;
+      const totalArrecadado =
+        rifa.numeros
+          ?.filter((n: any) => n.pago)
+          .reduce((sum: number, n: any) => {
+            const valor = n.valor_pago || rifa.valor_numero || 0;
+            return sum + Number(valor);
+          }, 0) || 0;
+      const atingiuMeta = totalArrecadado >= Number(rifa.faturamento_alvo);
+
+      const { numeros, ...rifaData } = rifa;
+      return {
+        ...rifaData,
+        total_numeros: totalNumeros,
+        vendidos,
+        disponiveis,
+        total_arrecadado: totalArrecadado,
+        atingiu_meta: atingiuMeta ? 1 : 0,
+      };
+    });
+
+    res.json({
+      data: rifasComResumo,
+      pagination: {
+        page,
+        pageSize,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / pageSize),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: (error as Error).message });
+  }
+});
+
+app.post("/api/rifas", async (req: Request, res: Response) => {
   const descricao = trimText(req.body.descricao);
   const valorPremio = asPositiveNumber(req.body.valorPremio);
   const valorNumero = asPositiveNumber(req.body.valorNumero);
   const lucroDesejado = asNonNegativeNumber(req.body.lucroDesejado);
   const dataSorteio = trimText(req.body.dataSorteio);
 
-  if (!descricao || !valorPremio || !valorNumero || lucroDesejado === null || !dataSorteio) {
+  if (
+    !descricao ||
+    !valorPremio ||
+    !valorNumero ||
+    lucroDesejado === null ||
+    !dataSorteio
+  ) {
     res.status(400).json({ message: "Dados invalidos para criar rifa." });
     return;
   }
 
   try {
-    const { faturamentoAlvo, quantidadeNumeros } = calcularPlanejamento(valorPremio, valorNumero, lucroDesejado);
+    const { faturamentoAlvo, quantidadeNumeros } = calcularPlanejamento(
+      valorPremio,
+      valorNumero,
+      lucroDesejado
+    );
     const numeros = gerarNumerosAleatorios4Digitos(quantidadeNumeros);
 
     const rifaId = uuidv4();
-    const insertRifa = db.prepare(
-      `
-      INSERT INTO rifas (
-        id,
-        descricao,
-        valor_premio,
-        valor_numero,
-        lucro_desejado,
-        faturamento_alvo,
-        quantidade_numeros,
-        data_sorteio,
-        status,
-        criada_em,
-        atualizada_em
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ativa', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `,
-    );
 
-    const insertNumero = db.prepare(
-      `
-      INSERT INTO numeros_rifa (
-        id,
-        rifa_id,
-        numero,
-        pessoa_id,
-        pago,
-        valor_pago,
-        vendido_em,
-        criado_em,
-        atualizado_em
-      ) VALUES (?, ?, ?, NULL, 0, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `,
-    );
-
-    const tx = db.transaction(() => {
-      insertRifa.run(
-        rifaId,
-        descricao,
-        valorPremio,
-        valorNumero,
-        lucroDesejado,
-        faturamentoAlvo,
-        quantidadeNumeros,
-        dataSorteio,
-      );
-
-      for (const numero of numeros) {
-        insertNumero.run(uuidv4(), rifaId, numero);
-      }
+    // Inserir rifa
+    const { error: rifaError } = await supabase.from("rifas").insert({
+      id: rifaId,
+      descricao,
+      valor_premio: valorPremio,
+      valor_numero: valorNumero,
+      lucro_desejado: lucroDesejado,
+      faturamento_alvo: faturamentoAlvo,
+      quantidade_numeros: quantidadeNumeros,
+      data_sorteio: dataSorteio,
+      status: "ativa",
     });
 
-    tx();
+    if (rifaError) throw rifaError;
+
+    // Inserir números em lotes
+    const numerosParaInserir = numeros.map((numero) => ({
+      id: uuidv4(),
+      rifa_id: rifaId,
+      numero,
+      pago: false,
+    }));
+
+    const { error: numerosError } = await supabase
+      .from("numeros_rifa")
+      .insert(numerosParaInserir);
+
+    if (numerosError) throw numerosError;
 
     res.status(201).json({
       id: rifaId,
@@ -375,87 +382,104 @@ app.post("/api/rifas", (req: Request, res: Response) => {
   }
 });
 
-app.get("/api/rifas/:id", (req: Request, res: Response) => {
+app.get("/api/rifas/:id", async (req: Request, res: Response) => {
   try {
-    const rifa = getRifaOrThrow(asParamString(req.params.id));
+    const rifa = await getRifaOrThrow(asParamString(req.params.id));
 
-    const resumo = db
-      .prepare(
-        `
-        SELECT
-          COUNT(*) AS total_numeros,
-          SUM(CASE WHEN pessoa_id IS NOT NULL THEN 1 ELSE 0 END) AS vendidos,
-          SUM(CASE WHEN pessoa_id IS NULL THEN 1 ELSE 0 END) AS disponiveis,
-          COALESCE(SUM(CASE WHEN pago = 1 THEN COALESCE(valor_pago, ?) ELSE 0 END), 0) AS total_arrecadado,
-          SUM(CASE WHEN pago = 1 THEN 1 ELSE 0 END) AS pagos
-        FROM numeros_rifa
-        WHERE rifa_id = ?
-      `,
-      )
-      .get(rifa.valor_numero, rifa.id);
+    // Buscar resumo dos números
+    const { data: numerosData, error: numerosError } = await supabase
+      .from("numeros_rifa")
+      .select("id, pessoa_id, pago, valor_pago")
+      .eq("rifa_id", rifa.id);
 
-    const sorteio = db
-      .prepare(
-        `
-        SELECT
-          id,
-          numero,
-          vencedor_nome,
-          vencedor_telefone,
-          criada_em
-        FROM sorteios
-        WHERE rifa_id = ?
-      `,
-      )
-      .get(rifa.id);
+    if (numerosError) throw numerosError;
+
+    const totalNumeros = numerosData?.length || 0;
+    const vendidos =
+      numerosData?.filter((n) => n.pessoa_id !== null).length || 0;
+    const disponiveis = totalNumeros - vendidos;
+    const pagos = numerosData?.filter((n) => n.pago).length || 0;
+    const totalArrecadado =
+      numerosData
+        ?.filter((n) => n.pago)
+        .reduce((sum, n) => {
+          const valor = n.valor_pago || rifa.valor_numero || 0;
+          return sum + Number(valor);
+        }, 0) || 0;
+
+    // Buscar sorteio se existir
+    const { data: sorteio, error: sorteioError } = await supabase
+      .from("sorteios")
+      .select("id, numero, vencedor_nome, vencedor_telefone, criada_em")
+      .eq("rifa_id", rifa.id)
+      .single();
 
     res.json({
       rifa,
-      resumo,
-      sorteio: sorteio ?? null,
+      resumo: {
+        total_numeros: totalNumeros,
+        vendidos,
+        disponiveis,
+        total_arrecadado: totalArrecadado,
+        pagos,
+      },
+      sorteio: sorteioError ? null : sorteio,
     });
   } catch (error) {
     res.status(404).json({ message: (error as Error).message });
   }
 });
 
-app.put("/api/rifas/:id", (req: Request, res: Response) => {
+app.put("/api/rifas/:id", async (req: Request, res: Response) => {
   const rifaId = asParamString(req.params.id);
 
-  let current: ReturnType<typeof getRifaOrThrow>;
   try {
-    current = getRifaOrThrow(rifaId);
-  } catch (error) {
-    res.status(404).json({ message: (error as Error).message });
-    return;
-  }
+    const current = await getRifaOrThrow(rifaId);
 
-  const descricao = trimText(req.body.descricao) || current.descricao;
-  const dataSorteio = trimText(req.body.dataSorteio) || current.data_sorteio;
-  const status = trimText(req.body.status) || current.status;
+    const descricao = trimText(req.body.descricao) || current.descricao;
+    const dataSorteio = trimText(req.body.dataSorteio) || current.data_sorteio;
+    const status = trimText(req.body.status) || current.status;
 
-  const valorPremio =
-    req.body.valorPremio === undefined ? current.valor_premio : asPositiveNumber(req.body.valorPremio);
-  const valorNumero =
-    req.body.valorNumero === undefined ? current.valor_numero : asPositiveNumber(req.body.valorNumero);
-  const lucroDesejado =
-    req.body.lucroDesejado === undefined
-      ? current.lucro_desejado
-      : asNonNegativeNumber(req.body.lucroDesejado);
+    const valorPremio =
+      req.body.valorPremio === undefined
+        ? current.valor_premio
+        : asPositiveNumber(req.body.valorPremio);
+    const valorNumero =
+      req.body.valorNumero === undefined
+        ? current.valor_numero
+        : asPositiveNumber(req.body.valorNumero);
+    const lucroDesejado =
+      req.body.lucroDesejado === undefined
+        ? current.lucro_desejado
+        : asNonNegativeNumber(req.body.lucroDesejado);
 
-  if (!descricao || !dataSorteio || !valorPremio || !valorNumero || lucroDesejado === null) {
-    res.status(400).json({ message: "Dados invalidos para atualizar rifa." });
-    return;
-  }
+    if (
+      !descricao ||
+      !dataSorteio ||
+      !valorPremio ||
+      !valorNumero ||
+      lucroDesejado === null
+    ) {
+      res.status(400).json({ message: "Dados invalidos para atualizar rifa." });
+      return;
+    }
 
-  try {
-    const { faturamentoAlvo, quantidadeNumeros } = calcularPlanejamento(valorPremio, valorNumero, lucroDesejado);
+    const { faturamentoAlvo, quantidadeNumeros } = calcularPlanejamento(
+      valorPremio,
+      valorNumero,
+      lucroDesejado
+    );
 
-    const soldCount = db
-      .prepare("SELECT COUNT(*) AS total FROM numeros_rifa WHERE rifa_id = ? AND pessoa_id IS NOT NULL")
-      .get(rifaId) as { total: number };
+    // Verificar quantos números já foram vendidos
+    const { count: soldCount, error: countError } = await supabase
+      .from("numeros_rifa")
+      .select("*", { count: "exact", head: true })
+      .eq("rifa_id", rifaId)
+      .not("pessoa_id", "is", null);
 
-    if (quantidadeNumeros < Number(soldCount.total)) {
+    if (countError) throw countError;
+
+    if (quantidadeNumeros < (soldCount || 0)) {
       res.status(400).json({
         message:
           "A nova configuracao exige menos numeros do que os ja vendidos. Ajuste valor/meta ou libere numeros vendidos primeiro.",
@@ -463,489 +487,591 @@ app.put("/api/rifas/:id", (req: Request, res: Response) => {
       return;
     }
 
-    const existing = db
-      .prepare("SELECT id, numero, pessoa_id FROM numeros_rifa WHERE rifa_id = ? ORDER BY criado_em ASC")
-      .all(rifaId) as Array<{ id: string; numero: string; pessoa_id: string | null }>;
+    // Buscar números existentes
+    const { data: existing, error: existingError } = await supabase
+      .from("numeros_rifa")
+      .select("id, numero, pessoa_id")
+      .eq("rifa_id", rifaId)
+      .order("criado_em", { ascending: true });
 
-    const updateRifa = db.prepare(
-      `
-      UPDATE rifas
-      SET
-        descricao = ?,
-        valor_premio = ?,
-        valor_numero = ?,
-        lucro_desejado = ?,
-        faturamento_alvo = ?,
-        quantidade_numeros = ?,
-        data_sorteio = ?,
-        status = ?,
-        atualizada_em = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `,
-    );
+    if (existingError) throw existingError;
 
-    const insertNumero = db.prepare(
-      `
-      INSERT INTO numeros_rifa (
+    // Atualizar rifa
+    const { error: updateError } = await supabase
+      .from("rifas")
+      .update({
+        descricao,
+        valor_premio: valorPremio,
+        valor_numero: valorNumero,
+        lucro_desejado: lucroDesejado,
+        faturamento_alvo: faturamentoAlvo,
+        quantidade_numeros: quantidadeNumeros,
+        data_sorteio: dataSorteio,
+        status,
+      })
+      .eq("id", rifaId);
+
+    if (updateError) throw updateError;
+
+    const existingLength = existing?.length || 0;
+
+    // Se precisa adicionar mais números
+    if (quantidadeNumeros > existingLength) {
+      const existingNumbers = new Set(existing?.map((item) => item.numero) || []);
+      const toGenerate = quantidadeNumeros - existingLength;
+      const generated = gerarNumerosAleatorios4Digitos(toGenerate, existingNumbers);
+
+      const numerosParaInserir = generated.map((numero) => ({
+        id: uuidv4(),
+        rifa_id: rifaId,
+        numero,
+        pago: false,
+      }));
+
+      const { error: insertError } = await supabase
+        .from("numeros_rifa")
+        .insert(numerosParaInserir);
+
+      if (insertError) throw insertError;
+    }
+
+    // Se precisa remover números
+    if (quantidadeNumeros < existingLength) {
+      const removable = existing?.filter((item) => item.pessoa_id === null).reverse() || [];
+      const toRemove = existingLength - quantidadeNumeros;
+
+      if (removable.length < toRemove) {
+        throw new Error(
+          "Nao foi possivel reduzir numeros porque nao ha numeros disponiveis suficientes para remover."
+        );
+      }
+
+      const idsToRemove = removable.slice(0, toRemove).map((item) => item.id);
+      const { error: deleteError } = await supabase
+        .from("numeros_rifa")
+        .delete()
+        .in("id", idsToRemove);
+
+      if (deleteError) throw deleteError;
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({ message: (error as Error).message });
+  }
+});
+
+app.delete("/api/rifas/:id", async (req: Request, res: Response) => {
+  try {
+    const { error } = await supabase
+      .from("rifas")
+      .delete()
+      .eq("id", asParamString(req.params.id));
+
+    if (error) throw error;
+
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(404).json({ message: (error as Error).message });
+  }
+});
+
+app.get("/api/rifas/:id/numeros", async (req: Request, res: Response) => {
+  const { page, pageSize, offset } = parsePagination(req);
+  const rifaId = asParamString(req.params.id);
+
+  try {
+    await getRifaOrThrow(rifaId);
+
+    const search = trimText(req.query.search);
+    const statusFilter = trimText(req.query.status);
+
+    let query = supabase
+      .from("numeros_rifa")
+      .select(
+        `
         id,
-        rifa_id,
         numero,
         pessoa_id,
         pago,
         valor_pago,
         vendido_em,
         criado_em,
-        atualizado_em
-      ) VALUES (?, ?, ?, NULL, 0, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `,
-    );
-
-    const removeNumero = db.prepare("DELETE FROM numeros_rifa WHERE id = ?");
-
-    const tx = db.transaction(() => {
-      updateRifa.run(
-        descricao,
-        valorPremio,
-        valorNumero,
-        lucroDesejado,
-        faturamentoAlvo,
-        quantidadeNumeros,
-        dataSorteio,
-        status,
-        rifaId,
-      );
-
-      if (quantidadeNumeros > existing.length) {
-        const existingNumbers = new Set(existing.map((item) => item.numero));
-        const toGenerate = quantidadeNumeros - existing.length;
-        const generated = gerarNumerosAleatorios4Digitos(toGenerate, existingNumbers);
-        for (const numero of generated) {
-          insertNumero.run(uuidv4(), rifaId, numero);
-        }
-      }
-
-      if (quantidadeNumeros < existing.length) {
-        const removable = existing.filter((item) => item.pessoa_id === null).reverse();
-        const toRemove = existing.length - quantidadeNumeros;
-        if (removable.length < toRemove) {
-          throw new Error("Nao foi possivel reduzir numeros porque nao ha numeros disponiveis suficientes para remover.");
-        }
-        for (let i = 0; i < toRemove; i += 1) {
-          removeNumero.run(removable[i]?.id);
-        }
-      }
-    });
-
-    tx();
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(400).json({ message: (error as Error).message });
-  }
-});
-
-app.delete("/api/rifas/:id", (req: Request, res: Response) => {
-  const result = db.prepare("DELETE FROM rifas WHERE id = ?").run(asParamString(req.params.id));
-  if (result.changes === 0) {
-    res.status(404).json({ message: "Rifa nao encontrada." });
-    return;
-  }
-
-  res.json({ ok: true });
-});
-
-app.get("/api/rifas/:id/numeros", (req: Request, res: Response) => {
-  const { page, pageSize, offset } = parsePagination(req);
-  const rifaId = asParamString(req.params.id);
-
-  try {
-    getRifaOrThrow(rifaId);
-  } catch (error) {
-    res.status(404).json({ message: (error as Error).message });
-    return;
-  }
-
-  const search = trimText(req.query.search);
-  const statusFilter = trimText(req.query.status);
-
-  const conditions: string[] = ["n.rifa_id = ?"];
-  const params: unknown[] = [rifaId];
-
-  if (search) {
-    conditions.push("(n.numero LIKE ? OR p.nome LIKE ? OR p.telefone LIKE ?)");
-    const pattern = `%${search}%`;
-    params.push(pattern, pattern, pattern);
-  }
-
-  if (statusFilter === "disponivel") {
-    conditions.push("n.pessoa_id IS NULL");
-  } else if (statusFilter === "vendido") {
-    conditions.push("n.pessoa_id IS NOT NULL");
-  } else if (statusFilter === "pago") {
-    conditions.push("n.pago = 1");
-  } else if (statusFilter === "nao-pago") {
-    conditions.push("n.pessoa_id IS NOT NULL AND n.pago = 0");
-  }
-
-  const where = `WHERE ${conditions.join(" AND ")}`;
-
-  const total = db
-    .prepare(
-      `
-      SELECT COUNT(*) AS total
-      FROM numeros_rifa n
-      LEFT JOIN pessoas p ON p.id = n.pessoa_id
-      ${where}
-    `,
-    )
-    .get(...params) as { total: number };
-
-  const rows = db
-    .prepare(
-      `
-      SELECT
-        n.id,
-        n.numero,
-        n.pessoa_id,
-        n.pago,
-        n.valor_pago,
-        n.vendido_em,
-        n.criado_em,
-        p.nome,
-        p.telefone
-      FROM numeros_rifa n
-      LEFT JOIN pessoas p ON p.id = n.pessoa_id
-      ${where}
-      ORDER BY n.numero ASC
-      LIMIT ? OFFSET ?
-    `,
-    )
-    .all(...params, pageSize, offset);
-
-  res.json({
-    data: rows,
-    pagination: {
-      page,
-      pageSize,
-      total: Number(total.total),
-      totalPages: Math.ceil(Number(total.total) / pageSize),
-    },
-  });
-});
-
-app.post("/api/rifas/:rifaId/numeros/:numeroId/associar", (req: Request, res: Response) => {
-  const rifaId = asParamString(req.params.rifaId);
-  const numeroId = asParamString(req.params.numeroId);
-
-  let rifa: ReturnType<typeof getRifaOrThrow>;
-  try {
-    rifa = getRifaOrThrow(rifaId);
-  } catch (error) {
-    res.status(404).json({ message: (error as Error).message });
-    return;
-  }
-
-  if (rifa.status !== "ativa") {
-    res.status(400).json({ message: "Somente rifas ativas permitem compra de numeros." });
-    return;
-  }
-
-  const numero = db
-    .prepare("SELECT id, pessoa_id FROM numeros_rifa WHERE id = ? AND rifa_id = ?")
-    .get(numeroId, rifaId) as { id: string; pessoa_id: string | null } | undefined;
-
-  if (!numero) {
-    res.status(404).json({ message: "Numero nao encontrado para essa rifa." });
-    return;
-  }
-
-  if (numero.pessoa_id) {
-    res.status(409).json({ message: "Numero ja foi comprado." });
-    return;
-  }
-
-  const pago = req.body.pago ? 1 : 0;
-  const valorPagoInput = req.body.valorPago;
-  const valorPago =
-    valorPagoInput === null || valorPagoInput === undefined || valorPagoInput === ""
-      ? null
-      : Number(valorPagoInput);
-
-  if (valorPago !== null && (!Number.isFinite(valorPago) || valorPago < 0)) {
-    res.status(400).json({ message: "Valor pago invalido." });
-    return;
-  }
-
-  try {
-    const pessoaId = resolvePessoaId({
-      pessoaId: req.body.pessoaId,
-      nome: req.body.nome,
-      telefone: req.body.telefone,
-    });
-
-    db.prepare(
-      `
-      UPDATE numeros_rifa
-      SET pessoa_id = ?,
-          pago = ?,
-          valor_pago = ?,
-          vendido_em = CURRENT_TIMESTAMP,
-          atualizado_em = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `,
-    ).run(pessoaId, pago, valorPago, numeroId);
-
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(400).json({ message: (error as Error).message });
-  }
-});
-
-app.post("/api/rifas/:rifaId/numeros/associar-lote", (req: Request, res: Response) => {
-  const rifaId = asParamString(req.params.rifaId);
-
-  let rifa: ReturnType<typeof getRifaOrThrow>;
-  try {
-    rifa = getRifaOrThrow(rifaId);
-  } catch (error) {
-    res.status(404).json({ message: (error as Error).message });
-    return;
-  }
-
-  if (rifa.status !== "ativa") {
-    res.status(400).json({ message: "Somente rifas ativas permitem compra de numeros." });
-    return;
-  }
-
-  const numeroIdsRaw = Array.isArray(req.body.numeroIds) ? req.body.numeroIds : [];
-  const numeroIds = numeroIdsRaw
-    .map((item: unknown) => trimText(item))
-    .filter((item: string) => Boolean(item));
-
-  if (numeroIds.length === 0) {
-    res.status(400).json({ message: "Informe ao menos um numero para associar." });
-    return;
-  }
-
-  const uniqueNumeroIds = Array.from(new Set(numeroIds));
-  if (uniqueNumeroIds.length !== numeroIds.length) {
-    res.status(400).json({ message: "Lista de numeros contem itens duplicados." });
-    return;
-  }
-
-  const pago = req.body.pago ? 1 : 0;
-  const valorPagoInput = req.body.valorPago;
-  const valorPago =
-    valorPagoInput === null || valorPagoInput === undefined || valorPagoInput === ""
-      ? null
-      : Number(valorPagoInput);
-
-  if (valorPago !== null && (!Number.isFinite(valorPago) || valorPago < 0)) {
-    res.status(400).json({ message: "Valor pago invalido." });
-    return;
-  }
-
-  try {
-    const pessoaId = resolvePessoaId({
-      pessoaId: req.body.pessoaId,
-      nome: req.body.nome,
-      telefone: req.body.telefone,
-    });
-
-    const placeholders = uniqueNumeroIds.map(() => "?").join(",");
-    const numbers = db
-      .prepare(
-        `
-        SELECT id, pessoa_id
-        FROM numeros_rifa
-        WHERE rifa_id = ?
-          AND id IN (${placeholders})
+        pessoas(nome, telefone)
       `,
+        { count: "exact" }
       )
-      .all(rifaId, ...uniqueNumeroIds) as Array<{ id: string; pessoa_id: string | null }>;
+      .eq("rifa_id", rifaId)
+      .order("numero", { ascending: true });
 
-    if (numbers.length !== uniqueNumeroIds.length) {
-      res.status(404).json({ message: "Um ou mais numeros nao foram encontrados para essa rifa." });
+    if (search) {
+      // Para busca, fazemos uma query mais complexa
+      const { data: searchData, error: searchError } = await supabase
+        .from("numeros_rifa")
+        .select(
+          `
+          id,
+          numero,
+          pessoa_id,
+          pago,
+          valor_pago,
+          vendido_em,
+          criado_em,
+          pessoas(nome, telefone)
+        `,
+          { count: "exact" }
+        )
+        .eq("rifa_id", rifaId)
+        .order("numero", { ascending: true });
+
+      if (searchError) throw searchError;
+
+      const filtered = searchData?.filter((item: any) => {
+        const searchLower = search.toLowerCase();
+        return (
+          item.numero.toLowerCase().includes(searchLower) ||
+          item.pessoas?.nome?.toLowerCase().includes(searchLower) ||
+          item.pessoas?.telefone?.toLowerCase().includes(searchLower)
+        );
+      });
+
+      const total = filtered?.length || 0;
+      const paginatedData = filtered?.slice(offset, offset + pageSize);
+
+      const rows = paginatedData?.map((item: any) => ({
+        id: item.id,
+        numero: item.numero,
+        pessoa_id: item.pessoa_id,
+        pago: item.pago,
+        valor_pago: item.valor_pago,
+        vendido_em: item.vendido_em,
+        criado_em: item.criado_em,
+        nome: item.pessoas?.nome || null,
+        telefone: item.pessoas?.telefone || null,
+      }));
+
+      res.json({
+        data: rows,
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.ceil(total / pageSize),
+        },
+      });
       return;
     }
 
-    const soldNumber = numbers.find((item) => item.pessoa_id !== null);
-    if (soldNumber) {
-      res.status(409).json({ message: "Um ou mais numeros selecionados ja foram comprados." });
-      return;
+    if (statusFilter === "disponivel") {
+      query = query.is("pessoa_id", null);
+    } else if (statusFilter === "vendido") {
+      query = query.not("pessoa_id", "is", null);
+    } else if (statusFilter === "pago") {
+      query = query.eq("pago", true);
+    } else if (statusFilter === "nao-pago") {
+      query = query.not("pessoa_id", "is", null).eq("pago", false);
     }
 
-    const updateNumero = db.prepare(
-      `
-      UPDATE numeros_rifa
-      SET pessoa_id = ?,
-          pago = ?,
-          valor_pago = ?,
-          vendido_em = CURRENT_TIMESTAMP,
-          atualizado_em = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `,
-    );
+    query = query.range(offset, offset + pageSize - 1);
 
-    const tx = db.transaction(() => {
-      for (const numeroId of uniqueNumeroIds) {
-        updateNumero.run(pessoaId, pago, valorPago, numeroId);
-      }
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    const rows = data?.map((item: any) => ({
+      id: item.id,
+      numero: item.numero,
+      pessoa_id: item.pessoa_id,
+      pago: item.pago,
+      valor_pago: item.valor_pago,
+      vendido_em: item.vendido_em,
+      criado_em: item.criado_em,
+      nome: item.pessoas?.nome || null,
+      telefone: item.pessoas?.telefone || null,
+    }));
+
+    res.json({
+      data: rows,
+      pagination: {
+        page,
+        pageSize,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / pageSize),
+      },
     });
-
-    tx();
-    res.json({ ok: true, quantidade: uniqueNumeroIds.length });
   } catch (error) {
-    res.status(400).json({ message: (error as Error).message });
+    res.status(404).json({ message: (error as Error).message });
   }
 });
 
-app.patch("/api/rifas/:rifaId/numeros/:numeroId", (req: Request, res: Response) => {
-  const rifaId = asParamString(req.params.rifaId);
-  const numeroId = asParamString(req.params.numeroId);
+app.post(
+  "/api/rifas/:rifaId/numeros/:numeroId/associar",
+  async (req: Request, res: Response) => {
+    const rifaId = asParamString(req.params.rifaId);
+    const numeroId = asParamString(req.params.numeroId);
 
-  const numero = db
-    .prepare("SELECT id, pessoa_id FROM numeros_rifa WHERE id = ? AND rifa_id = ?")
-    .get(numeroId, rifaId) as { id: string; pessoa_id: string | null } | undefined;
+    try {
+      const rifa = await getRifaOrThrow(rifaId);
 
-  if (!numero) {
-    res.status(404).json({ message: "Numero nao encontrado para essa rifa." });
-    return;
-  }
+      if (rifa.status !== "ativa") {
+        res
+          .status(400)
+          .json({ message: "Somente rifas ativas permitem compra de numeros." });
+        return;
+      }
 
-  if (!numero.pessoa_id) {
-    res.status(400).json({ message: "Numero ainda nao foi associado a uma pessoa." });
-    return;
-  }
+      const { data: numero, error: numeroError } = await supabase
+        .from("numeros_rifa")
+        .select("id, pessoa_id")
+        .eq("id", numeroId)
+        .eq("rifa_id", rifaId)
+        .single();
 
-  const fields: string[] = [];
-  const values: unknown[] = [];
+      if (numeroError || !numero) {
+        res.status(404).json({ message: "Numero nao encontrado para essa rifa." });
+        return;
+      }
 
-  if (req.body.pago !== undefined) {
-    fields.push("pago = ?");
-    values.push(req.body.pago ? 1 : 0);
-  }
+      if (numero.pessoa_id) {
+        res.status(409).json({ message: "Numero ja foi comprado." });
+        return;
+      }
 
-  if (req.body.valorPago !== undefined) {
-    if (req.body.valorPago === null || req.body.valorPago === "") {
-      fields.push("valor_pago = NULL");
-    } else {
-      const valorPago = Number(req.body.valorPago);
-      if (!Number.isFinite(valorPago) || valorPago < 0) {
+      const pago = req.body.pago ? true : false;
+      const valorPagoInput = req.body.valorPago;
+      const valorPago =
+        valorPagoInput === null ||
+        valorPagoInput === undefined ||
+        valorPagoInput === ""
+          ? null
+          : Number(valorPagoInput);
+
+      if (valorPago !== null && (!Number.isFinite(valorPago) || valorPago < 0)) {
         res.status(400).json({ message: "Valor pago invalido." });
         return;
       }
-      fields.push("valor_pago = ?");
-      values.push(valorPago);
+
+      const pessoaId = await resolvePessoaId({
+        pessoaId: req.body.pessoaId,
+        nome: req.body.nome,
+        telefone: req.body.telefone,
+      });
+
+      const { error: updateError } = await supabase
+        .from("numeros_rifa")
+        .update({
+          pessoa_id: pessoaId,
+          pago,
+          valor_pago: valorPago,
+          vendido_em: new Date().toISOString(),
+        })
+        .eq("id", numeroId);
+
+      if (updateError) throw updateError;
+
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ message: (error as Error).message });
     }
   }
+);
 
-  if (fields.length === 0) {
-    res.status(400).json({ message: "Nenhum campo para atualizar." });
-    return;
+app.post(
+  "/api/rifas/:rifaId/numeros/associar-lote",
+  async (req: Request, res: Response) => {
+    const rifaId = asParamString(req.params.rifaId);
+
+    try {
+      const rifa = await getRifaOrThrow(rifaId);
+
+      if (rifa.status !== "ativa") {
+        res
+          .status(400)
+          .json({ message: "Somente rifas ativas permitem compra de numeros." });
+        return;
+      }
+
+      const numeroIdsRaw = Array.isArray(req.body.numeroIds)
+        ? req.body.numeroIds
+        : [];
+      const numeroIds = numeroIdsRaw
+        .map((item: unknown) => trimText(item))
+        .filter((item: string) => Boolean(item));
+
+      if (numeroIds.length === 0) {
+        res
+          .status(400)
+          .json({ message: "Informe ao menos um numero para associar." });
+        return;
+      }
+
+      const uniqueNumeroIds = Array.from(new Set(numeroIds));
+      if (uniqueNumeroIds.length !== numeroIds.length) {
+        res
+          .status(400)
+          .json({ message: "Lista de numeros contem itens duplicados." });
+        return;
+      }
+
+      const pago = req.body.pago ? true : false;
+      const valorPagoInput = req.body.valorPago;
+      const valorPago =
+        valorPagoInput === null ||
+        valorPagoInput === undefined ||
+        valorPagoInput === ""
+          ? null
+          : Number(valorPagoInput);
+
+      if (valorPago !== null && (!Number.isFinite(valorPago) || valorPago < 0)) {
+        res.status(400).json({ message: "Valor pago invalido." });
+        return;
+      }
+
+      const pessoaId = await resolvePessoaId({
+        pessoaId: req.body.pessoaId,
+        nome: req.body.nome,
+        telefone: req.body.telefone,
+      });
+
+      const { data: numbers, error: numbersError } = await supabase
+        .from("numeros_rifa")
+        .select("id, pessoa_id")
+        .eq("rifa_id", rifaId)
+        .in("id", uniqueNumeroIds);
+
+      if (numbersError) throw numbersError;
+
+      if ((numbers?.length || 0) !== uniqueNumeroIds.length) {
+        res
+          .status(404)
+          .json({
+            message: "Um ou mais numeros nao foram encontrados para essa rifa.",
+          });
+        return;
+      }
+
+      const soldNumber = numbers?.find((item) => item.pessoa_id !== null);
+      if (soldNumber) {
+        res
+          .status(409)
+          .json({ message: "Um ou mais numeros selecionados ja foram comprados." });
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from("numeros_rifa")
+        .update({
+          pessoa_id: pessoaId,
+          pago,
+          valor_pago: valorPago,
+          vendido_em: new Date().toISOString(),
+        })
+        .in("id", uniqueNumeroIds);
+
+      if (updateError) throw updateError;
+
+      res.json({ ok: true, quantidade: uniqueNumeroIds.length });
+    } catch (error) {
+      res.status(400).json({ message: (error as Error).message });
+    }
   }
+);
 
-  values.push(numeroId);
-  db.prepare(`UPDATE numeros_rifa SET ${fields.join(", ")}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?`).run(
-    ...values,
-  );
-  res.json({ ok: true });
-});
+app.patch(
+  "/api/rifas/:rifaId/numeros/:numeroId",
+  async (req: Request, res: Response) => {
+    const rifaId = asParamString(req.params.rifaId);
+    const numeroId = asParamString(req.params.numeroId);
 
-app.delete("/api/rifas/:rifaId/numeros/:numeroId/associacao", (req: Request, res: Response) => {
-  const rifaId = asParamString(req.params.rifaId);
-  const numeroId = asParamString(req.params.numeroId);
+    try {
+      const { data: numero, error: numeroError } = await supabase
+        .from("numeros_rifa")
+        .select("id, pessoa_id")
+        .eq("id", numeroId)
+        .eq("rifa_id", rifaId)
+        .single();
 
-  const numero = db
-    .prepare("SELECT id FROM numeros_rifa WHERE id = ? AND rifa_id = ?")
-    .get(numeroId, rifaId) as { id: string } | undefined;
+      if (numeroError || !numero) {
+        res.status(404).json({ message: "Numero nao encontrado para essa rifa." });
+        return;
+      }
 
-  if (!numero) {
-    res.status(404).json({ message: "Numero nao encontrado para essa rifa." });
-    return;
+      if (!numero.pessoa_id) {
+        res
+          .status(400)
+          .json({ message: "Numero ainda nao foi associado a uma pessoa." });
+        return;
+      }
+
+      const updateData: any = {};
+
+      if (req.body.pago !== undefined) {
+        updateData.pago = req.body.pago ? true : false;
+      }
+
+      if (req.body.valorPago !== undefined) {
+        if (req.body.valorPago === null || req.body.valorPago === "") {
+          updateData.valor_pago = null;
+        } else {
+          const valorPago = Number(req.body.valorPago);
+          if (!Number.isFinite(valorPago) || valorPago < 0) {
+            res.status(400).json({ message: "Valor pago invalido." });
+            return;
+          }
+          updateData.valor_pago = valorPago;
+        }
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        res.status(400).json({ message: "Nenhum campo para atualizar." });
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from("numeros_rifa")
+        .update(updateData)
+        .eq("id", numeroId);
+
+      if (updateError) throw updateError;
+
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ message: (error as Error).message });
+    }
   }
+);
 
-  db.prepare(
-    `
-    UPDATE numeros_rifa
-    SET pessoa_id = NULL,
-        pago = 0,
-        valor_pago = NULL,
-        vendido_em = NULL,
-        atualizado_em = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `,
-  ).run(numeroId);
+app.delete(
+  "/api/rifas/:rifaId/numeros/:numeroId/associacao",
+  async (req: Request, res: Response) => {
+    const rifaId = asParamString(req.params.rifaId);
+    const numeroId = asParamString(req.params.numeroId);
 
-  res.json({ ok: true });
-});
+    try {
+      const { data: numero, error: numeroError } = await supabase
+        .from("numeros_rifa")
+        .select("id")
+        .eq("id", numeroId)
+        .eq("rifa_id", rifaId)
+        .single();
 
-app.delete("/api/rifas/:rifaId/numeros/:numeroId", (req: Request, res: Response) => {
-  const rifaId = asParamString(req.params.rifaId);
-  const numeroId = asParamString(req.params.numeroId);
+      if (numeroError || !numero) {
+        res.status(404).json({ message: "Numero nao encontrado para essa rifa." });
+        return;
+      }
 
-  const numero = db
-    .prepare("SELECT id, pessoa_id FROM numeros_rifa WHERE id = ? AND rifa_id = ?")
-    .get(numeroId, rifaId) as { id: string; pessoa_id: string | null } | undefined;
+      const { error: updateError } = await supabase
+        .from("numeros_rifa")
+        .update({
+          pessoa_id: null,
+          pago: false,
+          valor_pago: null,
+          vendido_em: null,
+        })
+        .eq("id", numeroId);
 
-  if (!numero) {
-    res.status(404).json({ message: "Numero nao encontrado para essa rifa." });
-    return;
+      if (updateError) throw updateError;
+
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ message: (error as Error).message });
+    }
   }
+);
 
-  if (numero.pessoa_id) {
-    res.status(400).json({ message: "Numero vendido nao pode ser removido. Libere a associacao primeiro." });
-    return;
+app.delete(
+  "/api/rifas/:rifaId/numeros/:numeroId",
+  async (req: Request, res: Response) => {
+    const rifaId = asParamString(req.params.rifaId);
+    const numeroId = asParamString(req.params.numeroId);
+
+    try {
+      const { data: numero, error: numeroError } = await supabase
+        .from("numeros_rifa")
+        .select("id, pessoa_id")
+        .eq("id", numeroId)
+        .eq("rifa_id", rifaId)
+        .single();
+
+      if (numeroError || !numero) {
+        res.status(404).json({ message: "Numero nao encontrado para essa rifa." });
+        return;
+      }
+
+      if (numero.pessoa_id) {
+        res
+          .status(400)
+          .json({
+            message:
+              "Numero vendido nao pode ser removido. Libere a associacao primeiro.",
+          });
+        return;
+      }
+
+      const { error: deleteError } = await supabase
+        .from("numeros_rifa")
+        .delete()
+        .eq("id", numeroId);
+
+      if (deleteError) throw deleteError;
+
+      // Atualizar quantidade de números na rifa
+      const { data: rifa } = await supabase
+        .from("rifas")
+        .select("quantidade_numeros")
+        .eq("id", rifaId)
+        .single();
+
+      if (rifa) {
+        await supabase
+          .from("rifas")
+          .update({ quantidade_numeros: rifa.quantidade_numeros - 1 })
+          .eq("id", rifaId);
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ message: (error as Error).message });
+    }
   }
+);
 
-  db.prepare("DELETE FROM numeros_rifa WHERE id = ?").run(numeroId);
-  db.prepare("UPDATE rifas SET quantidade_numeros = quantidade_numeros - 1, atualizada_em = CURRENT_TIMESTAMP WHERE id = ?").run(
-    rifaId,
-  );
-
-  res.json({ ok: true });
-});
-
-app.get("/api/pessoas", (req: Request, res: Response) => {
-  const { page, pageSize, offset } = parsePagination(req);
-  const search = trimText(req.query.search);
-
-  const where = search ? "WHERE nome LIKE ? OR telefone LIKE ?" : "";
-  const params: unknown[] = [];
-  if (search) {
-    const pattern = `%${search}%`;
-    params.push(pattern, pattern);
-  }
-
-  const total = db.prepare(`SELECT COUNT(*) AS total FROM pessoas ${where}`).get(...params) as {
-    total: number;
-  };
-
-  const rows = db
-    .prepare(
-      `
-      SELECT id, nome, telefone, criada_em, atualizada_em
-      FROM pessoas
-      ${where}
-      ORDER BY nome ASC
-      LIMIT ? OFFSET ?
-    `,
-    )
-    .all(...params, pageSize, offset);
-
-  res.json({
-    data: rows,
-    pagination: {
-      page,
-      pageSize,
-      total: Number(total.total),
-      totalPages: Math.ceil(Number(total.total) / pageSize),
-    },
-  });
-});
-
-app.post("/api/pessoas", (req: Request, res: Response) => {
+app.get("/api/pessoas", async (req: Request, res: Response) => {
   try {
-    const id = getOrCreatePessoa({
+    const { page, pageSize, offset } = parsePagination(req);
+    const search = trimText(req.query.search);
+
+    let query = supabase
+      .from("pessoas")
+      .select("id, nome, telefone, criada_em, atualizada_em", { count: "exact" })
+      .order("nome", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (search) {
+      query = query.or(`nome.ilike.%${search}%,telefone.ilike.%${search}%`);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    res.json({
+      data,
+      pagination: {
+        page,
+        pageSize,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / pageSize),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: (error as Error).message });
+  }
+});
+
+app.post("/api/pessoas", async (req: Request, res: Response) => {
+  try {
+    const id = await getOrCreatePessoa({
       nome: req.body.nome,
       telefone: req.body.telefone,
     });
@@ -955,7 +1081,7 @@ app.post("/api/pessoas", (req: Request, res: Response) => {
   }
 });
 
-app.put("/api/pessoas/:id", (req: Request, res: Response) => {
+app.put("/api/pessoas/:id", async (req: Request, res: Response) => {
   const pessoaId = asParamString(req.params.id);
   const nome = trimText(req.body.nome);
   const telefone = trimText(req.body.telefone);
@@ -966,201 +1092,199 @@ app.put("/api/pessoas/:id", (req: Request, res: Response) => {
   }
 
   try {
-    const result = db
-      .prepare(
-        `
-        UPDATE pessoas
-        SET nome = ?, telefone = ?, atualizada_em = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `,
-      )
-      .run(nome, telefone, pessoaId);
+    const { error } = await supabase
+      .from("pessoas")
+      .update({
+        nome,
+        telefone,
+      })
+      .eq("id", pessoaId);
 
-    if (result.changes === 0) {
-      res.status(404).json({ message: "Pessoa nao encontrada." });
-      return;
+    if (error) {
+      if (error.message.includes("duplicate key")) {
+        res
+          .status(409)
+          .json({ message: "Ja existe pessoa com esse nome e telefone." });
+        return;
+      }
+      throw error;
     }
 
     res.json({ ok: true });
   } catch (error) {
-    const message = (error as Error).message;
-    if (message.includes("UNIQUE constraint failed")) {
-      res.status(409).json({ message: "Ja existe pessoa com esse nome e telefone." });
-      return;
-    }
-    res.status(400).json({ message });
+    res.status(400).json({ message: (error as Error).message });
   }
 });
 
-app.delete("/api/pessoas/:id", (req: Request, res: Response) => {
+app.delete("/api/pessoas/:id", async (req: Request, res: Response) => {
   const pessoaId = asParamString(req.params.id);
 
-  const tx = db.transaction(() => {
-    db.prepare(
-      `
-      UPDATE numeros_rifa
-      SET pessoa_id = NULL,
-          pago = 0,
-          valor_pago = NULL,
-          vendido_em = NULL,
-          atualizado_em = CURRENT_TIMESTAMP
-      WHERE pessoa_id = ?
-    `,
-    ).run(pessoaId);
+  try {
+    // Limpar associações de números
+    await supabase
+      .from("numeros_rifa")
+      .update({
+        pessoa_id: null,
+        pago: false,
+        valor_pago: null,
+        vendido_em: null,
+      })
+      .eq("pessoa_id", pessoaId);
 
-    db.prepare("UPDATE sorteios SET pessoa_id = NULL WHERE pessoa_id = ?").run(pessoaId);
+    // Limpar associação de sorteios
+    await supabase
+      .from("sorteios")
+      .update({ pessoa_id: null })
+      .eq("pessoa_id", pessoaId);
 
-    const result = db.prepare("DELETE FROM pessoas WHERE id = ?").run(pessoaId);
-    return result.changes;
-  });
+    // Deletar pessoa
+    const { error } = await supabase
+      .from("pessoas")
+      .delete()
+      .eq("id", pessoaId);
 
-  const changes = tx();
-  if (!changes) {
-    res.status(404).json({ message: "Pessoa nao encontrada." });
-    return;
+    if (error) throw error;
+
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(404).json({ message: (error as Error).message });
   }
-
-  res.json({ ok: true });
 });
 
-app.get("/api/rifas/:id/candidatos-sorteio", (req: Request, res: Response) => {
+app.get(
+  "/api/rifas/:id/candidatos-sorteio",
+  async (req: Request, res: Response) => {
+    const rifaId = asParamString(req.params.id);
+
+    try {
+      await getRifaOrThrow(rifaId);
+
+      const { data: candidatos, error } = await supabase
+        .from("numeros_rifa")
+        .select(
+          `
+          id,
+          numero,
+          pessoas(nome, telefone)
+        `
+        )
+        .eq("rifa_id", rifaId)
+        .eq("pago", true)
+        .not("pessoa_id", "is", null)
+        .order("numero", { ascending: true });
+
+      if (error) throw error;
+
+      const rows = candidatos?.map((item: any) => ({
+        id: item.id,
+        numero: item.numero,
+        nome: item.pessoas?.nome || null,
+        telefone: item.pessoas?.telefone || null,
+      }));
+
+      res.json({ data: rows });
+    } catch (error) {
+      res.status(404).json({ message: (error as Error).message });
+    }
+  }
+);
+
+app.post("/api/rifas/:id/sortear", async (req: Request, res: Response) => {
   const rifaId = asParamString(req.params.id);
 
   try {
-    getRifaOrThrow(rifaId);
-  } catch (error) {
-    res.status(404).json({ message: (error as Error).message });
-    return;
-  }
+    const rifa = await getRifaOrThrow(rifaId);
 
-  const candidatos = db
-    .prepare(
-      `
-      SELECT
-        n.id,
-        n.numero,
-        p.nome,
-        p.telefone
-      FROM numeros_rifa n
-      INNER JOIN pessoas p ON p.id = n.pessoa_id
-      WHERE n.rifa_id = ?
-        AND n.pago = 1
-        AND n.pessoa_id IS NOT NULL
-      ORDER BY n.numero ASC
-    `,
-    )
-    .all(rifaId);
+    // Verificar se já existe sorteio
+    const { data: sorteioExistente, error: sorteioError } = await supabase
+      .from("sorteios")
+      .select("id, numero, vencedor_nome, vencedor_telefone, criada_em")
+      .eq("rifa_id", rifaId)
+      .single();
 
-  res.json({ data: candidatos });
-});
+    if (sorteioExistente && !sorteioError) {
+      res.status(409).json({
+        message: "Essa rifa ja foi sorteada.",
+        sorteio: sorteioExistente,
+      });
+      return;
+    }
 
-app.post("/api/rifas/:id/sortear", (req: Request, res: Response) => {
-  const rifaId = asParamString(req.params.id);
-
-  let rifa: ReturnType<typeof getRifaOrThrow>;
-  try {
-    rifa = getRifaOrThrow(rifaId);
-  } catch (error) {
-    res.status(404).json({ message: (error as Error).message });
-    return;
-  }
-
-  const sorteioExistente = db
-    .prepare(
-      `
-      SELECT id, numero, vencedor_nome, vencedor_telefone, criada_em
-      FROM sorteios
-      WHERE rifa_id = ?
-    `,
-    )
-    .get(rifaId);
-
-  if (sorteioExistente) {
-    res.status(409).json({
-      message: "Essa rifa ja foi sorteada.",
-      sorteio: sorteioExistente,
-    });
-    return;
-  }
-
-  const candidatos = db
-    .prepare(
-      `
-      SELECT
-        n.id,
-        n.numero,
-        n.pessoa_id,
-        p.nome,
-        p.telefone
-      FROM numeros_rifa n
-      INNER JOIN pessoas p ON p.id = n.pessoa_id
-      WHERE n.rifa_id = ?
-        AND n.pago = 1
-        AND n.pessoa_id IS NOT NULL
-    `,
-    )
-    .all(rifaId) as Array<{
-    id: string;
-    numero: string;
-    pessoa_id: string;
-    nome: string;
-    telefone: string;
-  }>;
-
-  if (candidatos.length === 0) {
-    res.status(400).json({ message: "Nao ha numeros pagos para realizar o sorteio." });
-    return;
-  }
-
-  const winner = candidatos[Math.floor(Math.random() * candidatos.length)];
-  if (!winner) {
-    res.status(500).json({ message: "Falha inesperada ao selecionar vencedor." });
-    return;
-  }
-
-  const tx = db.transaction(() => {
-    db.prepare(
-      `
-      INSERT INTO sorteios (
+    // Buscar candidatos
+    const { data: candidatos, error: candidatosError } = await supabase
+      .from("numeros_rifa")
+      .select(
+        `
         id,
-        rifa_id,
-        numero_rifa_id,
         numero,
         pessoa_id,
-        vencedor_nome,
-        vencedor_telefone,
-        criada_em
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `,
-    ).run(
-      uuidv4(),
-      rifaId,
-      winner.id,
-      winner.numero,
-      winner.pessoa_id,
-      winner.nome,
-      winner.telefone,
-    );
+        pessoas(nome, telefone)
+      `
+      )
+      .eq("rifa_id", rifaId)
+      .eq("pago", true)
+      .not("pessoa_id", "is", null);
 
-    db.prepare("UPDATE rifas SET status = 'sorteada', atualizada_em = CURRENT_TIMESTAMP WHERE id = ?").run(
-      rifaId,
-    );
-  });
+    if (candidatosError) throw candidatosError;
 
-  tx();
+    if (!candidatos || candidatos.length === 0) {
+      res
+        .status(400)
+        .json({ message: "Nao ha numeros pagos para realizar o sorteio." });
+      return;
+    }
 
-  res.json({
-    rifa: {
-      id: rifa.id,
-      descricao: rifa.descricao,
-    },
-    candidatos,
-    vencedor: {
+    const winner = candidatos[Math.floor(Math.random() * candidatos.length)];
+    if (!winner) {
+      res
+        .status(500)
+        .json({ message: "Falha inesperada ao selecionar vencedor." });
+      return;
+    }
+
+    // Inserir sorteio
+    const { error: insertSorteioError } = await supabase.from("sorteios").insert({
+      id: uuidv4(),
+      rifa_id: rifaId,
+      numero_rifa_id: winner.id,
       numero: winner.numero,
-      nome: winner.nome,
-      telefone: winner.telefone,
-    },
-  });
+      pessoa_id: winner.pessoa_id,
+      vencedor_nome: (winner as any).pessoas?.nome || "Nao identificado",
+      vencedor_telefone: (winner as any).pessoas?.telefone || "Nao informado",
+    });
+
+    if (insertSorteioError) throw insertSorteioError;
+
+    // Atualizar status da rifa
+    const { error: updateRifaError } = await supabase
+      .from("rifas")
+      .update({ status: "sorteada" })
+      .eq("id", rifaId);
+
+    if (updateRifaError) throw updateRifaError;
+
+    const candidatosFormatados = candidatos.map((item: any) => ({
+      id: item.id,
+      numero: item.numero,
+      nome: item.pessoas?.nome || null,
+      telefone: item.pessoas?.telefone || null,
+    }));
+
+    res.json({
+      rifa: {
+        id: rifa.id,
+        descricao: rifa.descricao,
+      },
+      candidatos: candidatosFormatados,
+      vencedor: {
+        numero: winner.numero,
+        nome: (winner as any).pessoas?.nome || "Nao identificado",
+        telefone: (winner as any).pessoas?.telefone || "Nao informado",
+      },
+    });
+  } catch (error) {
+    res.status(400).json({ message: (error as Error).message });
+  }
 });
 
 app.listen(port, () => {
