@@ -83,7 +83,7 @@ export function HomePage() {
     if (!file) return;
 
     try {
-      const base64 = await imageToBase64(file, 500);
+      const base64 = await imageToBase64(file, 1024);
       if (isEdit) {
         setEditing((prev) => (prev ? { ...prev, foto_premio: base64 } : null));
       } else {
@@ -140,7 +140,6 @@ export function HomePage() {
         valorNumero: editing.valor_numero,
         lucroDesejado: editing.lucro_desejado,
         dataSorteio: editing.data_sorteio,
-        status: editing.status,
         fotoPremio: editing.foto_premio || undefined,
       });
       notify({ title: "Rifa atualizada", kind: "success" });
@@ -233,7 +232,7 @@ export function HomePage() {
                   required
                 />
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium">Foto do prêmio (opcional, máx 500KB)</label>
+                  <label className="text-sm font-medium">Foto do prêmio (opcional, máx 1MB)</label>
                   <Input
                     type="file"
                     accept="image/*"
@@ -335,7 +334,10 @@ export function HomePage() {
                       <Button asChild variant="outline" size="sm">
                         <Link to={`/rifas/${rifa.id}/participantes`}>Participantes</Link>
                       </Button>
-                      <Button variant="secondary" size="sm" onClick={() => setEditing(rifa)}>
+                      <Button variant="secondary" size="sm" onClick={() => {
+                        const dataSorteio = rifa.data_sorteio.split('T')[0] || rifa.data_sorteio;
+                        setEditing({ ...rifa, data_sorteio: dataSorteio });
+                      }}>
                         Editar
                       </Button>
                       <Button variant="destructive" size="sm" onClick={() => setRifaToDelete(rifa)}>
@@ -408,7 +410,7 @@ export function HomePage() {
                 required
               />
               <div className="grid gap-1">
-                <label className="text-sm font-medium">Foto do prêmio (opcional, máx 500KB)</label>
+                <label className="text-sm font-medium">Foto do prêmio (opcional, máx 1MB)</label>
                 <Input
                   type="file"
                   accept="image/*"
@@ -434,16 +436,6 @@ export function HomePage() {
                   </div>
                 )}
               </div>
-              <Input
-                value={editing.status}
-                onChange={(event) =>
-                  setEditing((prev) =>
-                    prev ? { ...prev, status: event.target.value as RifaResumo["status"] } : null,
-                  )
-                }
-                placeholder="ativa | sorteada | cancelada"
-                required
-              />
               <DialogFooter>
                 <Button type="submit">Salvar alteracoes</Button>
               </DialogFooter>

@@ -235,12 +235,91 @@ export function RifaDetailPage() {
     return null;
   }
 
+  function drawCurvedText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    centerX: number,
+    centerY: number,
+    radius: number,
+    startAngle: number
+  ) {
+    ctx.save();
+    const angleStep = 0.32;
+    const totalAngle = angleStep * (text.length - 1);
+    let angle = startAngle - totalAngle / 2;
+
+    for (let i = 0; i < text.length; i += 1) {
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(angle);
+      ctx.textAlign = "center";
+      ctx.fillText(text[i], 0, -radius);
+      ctx.restore();
+      angle += angleStep;
+    }
+    ctx.restore();
+  }
+
+  function createNineBySixteenCanvas(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement {
+    const targetRatio = 9 / 16;
+    const sourceWidth = sourceCanvas.width;
+    const sourceHeight = sourceCanvas.height;
+    const sourceRatio = sourceWidth / sourceHeight;
+
+    let finalWidth = sourceWidth;
+    let finalHeight = sourceHeight;
+
+    if (sourceRatio > targetRatio) {
+      finalHeight = Math.ceil(sourceWidth / targetRatio);
+    } else {
+      finalWidth = Math.ceil(sourceHeight * targetRatio);
+    }
+
+    const finalCanvas = document.createElement("canvas");
+    finalCanvas.width = finalWidth;
+    finalCanvas.height = finalHeight;
+
+    const finalCtx = finalCanvas.getContext("2d");
+    if (!finalCtx) {
+      throw new Error("Nao foi possivel criar contexto final do canvas");
+    }
+
+    finalCtx.fillStyle = "#c8d2c6";
+    finalCtx.fillRect(0, 0, finalWidth, finalHeight);
+
+    const offsetX = (finalWidth - sourceWidth) / 2;
+    const offsetY = (finalHeight - sourceHeight) / 2;
+    finalCtx.drawImage(sourceCanvas, offsetX, offsetY);
+
+    return finalCanvas;
+  }
+
+  function calculateGridColumns(totalNumbers: number, padding: number, gap: number, preferredCardWidth: number): number {
+    const minCols = 12;
+    const maxCols = 18;
+    const minCardWidth = 52;
+    const baseContentWidth = 980 - padding * 2;
+
+    const colsByMinCard = Math.floor((baseContentWidth + gap) / (minCardWidth + gap));
+    const colsByPreferredCard = Math.floor((baseContentWidth + gap) / (preferredCardWidth + gap));
+    const maxAllowedCols = Math.max(minCols, Math.min(maxCols, colsByMinCard));
+
+    const idealRows = Math.max(6, Math.min(10, Math.round(Math.sqrt(totalNumbers / 1.8))));
+    const colsByQuantity = Math.ceil(totalNumbers / idealRows);
+    const wantedCols = Math.max(colsByQuantity, colsByPreferredCard);
+
+    return Math.max(minCols, Math.min(maxAllowedCols, wantedCols));
+  }
+
   async function handleExportImage() {
     if (!id || !rifaData) {
       return;
     }
 
     setExporting(true);
+
+    // Garantir que a fonte Great Vibes esteja carregada
+    await document.fonts.load('58px "Great Vibes"');
     try {
       const allNumbers = await fetchAllNumbersForExport(id);
       const sortedNumbers = [...allNumbers].sort((a, b) => Number(a.numero) - Number(b.numero));
@@ -251,32 +330,78 @@ export function RifaDetailPage() {
         throw new Error("Nao foi possivel criar contexto do canvas");
       }
 
-      const padding = 34;
-      const headerHeight = 500;
-      const footerHeight = 720;
-      const cols = 10;
-      const cardWidth = 76;
-      const cardHeight = 44;
-      const gap = 10;
+      const padding = 24;
+      const preferredCardWidth = 72;
+      const cardHeight = 42;
+      const gap = 9;
+      const cols = calculateGridColumns(sortedNumbers.length, padding, gap, preferredCardWidth);
+
+      const minCardWidth = 56;
+      const maxCardWidth = 78;
+      const baseContentWidth = 980 - padding * 2;
+      const estimatedCardWidth = Math.floor((baseContentWidth - (cols - 1) * gap) / cols);
+      let cardWidth = Math.max(minCardWidth, Math.min(maxCardWidth, estimatedCardWidth));
+
+      let numberFontSize = cardWidth >= 72 ? 22 : 20;
+      let reservedFontSize = cardWidth >= 72 ? 12 : 11;
+      let numberTextY = Math.round(cardHeight * 0.69);
+      let reservedTextY = cardHeight - 3;
+      const instructions = [
+        "1. Escolha entre os numeros disponiveis abaixo.",
+        "2. Pague o valor da rifa por numero escolhido.",
+        "3. Envie o comprovante e seus dados.",
+        "4. Aguarde o sorteio e boa sorte!",
+      ];
+
+      const infoRowTop = padding + 388;
+      const instructionStartY = infoRowTop + 34;
+      const instructionLineHeight = 34;
+      const instructionBlockBottom =
+        instructionStartY + (instructions.length - 1) * instructionLineHeight + 24;
+
+      const priceCardWidth = 300;
+      const priceCardHeight = 132;
+      const infoBlockBottom = Math.max(instructionBlockBottom, infoRowTop + priceCardHeight);
+      const gridTopSpacing = 22;
+
       const rows = Math.ceil(sortedNumbers.length / cols);
-      const gridWidth = cols * cardWidth + (cols - 1) * gap;
-      const canvasWidth = Math.max(980, padding * 2 + gridWidth);
-      const gridStartY = padding + headerHeight;
+      const baseFooterHeight = 820;
+      const referenceRows = 10;
+      const footerGrowPerMissingRow = 70;
+      const footerHeight =
+        baseFooterHeight + Math.max(0, referenceRows - rows) * footerGrowPerMissingRow;
+
+      let gridWidth = cols * cardWidth + (cols - 1) * gap;
+      const minCanvasWidth = Math.max(980, padding * 2 + gridWidth);
+      const gridStartY = infoBlockBottom + gridTopSpacing;
       const gridHeight = rows * cardHeight + Math.max(0, rows - 1) * gap;
+      const minCanvasHeight = gridStartY + gridHeight + footerHeight;
+      const ratioCanvasWidth = Math.ceil((minCanvasHeight * 9) / 16);
+      const canvasWidth = Math.max(minCanvasWidth, ratioCanvasWidth);
+      const canvasHeight = Math.ceil((canvasWidth * 16) / 9);
 
       canvas.width = canvasWidth;
-      canvas.height = padding + headerHeight + gridHeight + footerHeight;
+      canvas.height = canvasHeight;
+
+      const availableGridWidth = canvasWidth - padding * 2;
+      const stretchedCardWidth = Math.floor((availableGridWidth - (cols - 1) * gap) / cols);
+      cardWidth = Math.max(minCardWidth, Math.min(maxCardWidth, stretchedCardWidth));
+      gridWidth = cols * cardWidth + (cols - 1) * gap;
+      numberFontSize = cardWidth >= 72 ? 22 : 20;
+      reservedFontSize = cardWidth >= 72 ? 12 : 11;
+      numberTextY = Math.round(cardHeight * 0.69);
+      reservedTextY = cardHeight - 3;
 
       ctx.fillStyle = "#c8d2c6";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       ctx.fillStyle = "#e8e4d9";
-      roundRect(ctx, 14, 14, canvas.width - 28, canvas.height - 28, 20);
+      roundRect(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 20);
       ctx.fill();
 
       ctx.strokeStyle = "#7f8f81";
       ctx.lineWidth = 4;
-      roundRect(ctx, 14, 14, canvas.width - 28, canvas.height - 28, 20);
+      roundRect(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 20);
       ctx.stroke();
 
       ctx.globalAlpha = 0.12;
@@ -294,7 +419,6 @@ export function RifaDetailPage() {
         ? "MES"
         : date
             .toLocaleDateString("pt-BR", { month: "short" })
-            .replace(".", "")
             .toUpperCase();
 
       const dateBubbleSize = 130;
@@ -314,25 +438,32 @@ export function RifaDetailPage() {
 
       ctx.fillStyle = "#f7f6f1";
       ctx.textAlign = "center";
-      ctx.font = "bold 26px Trebuchet MS";
-      ctx.fillText("SORTEIO", bubbleX + dateBubbleSize / 2, bubbleY + 34);
+      ctx.font = "bold 20px Trebuchet MS";
+      drawCurvedText(
+        ctx,
+        "SORTEIO",
+        bubbleX + dateBubbleSize / 2,
+        bubbleY + dateBubbleSize / 2,
+        40,
+        -Math.PI / 38
+      );
       ctx.font = "bold 44px Trebuchet MS";
       ctx.fillText(day, bubbleX + dateBubbleSize / 2, bubbleY + 77);
       ctx.font = "bold 21px Trebuchet MS";
       ctx.fillText(month, bubbleX + dateBubbleSize / 2, bubbleY + 105);
 
       ctx.fillStyle = "#2f3a33";
-      ctx.font = "58px Georgia";
+      ctx.font = "58px Great Vibes";
       ctx.textAlign = "center";
-      ctx.fillText("Rifa Casamento", canvas.width / 2, padding + 96);
-      ctx.fillText("Samara e Juan", canvas.width / 2, padding + 168);
+      ctx.fillText("Rifa Casamento", canvas.width / 2, padding + 100);
+      ctx.fillText("Samara e Juan", canvas.width / 2, padding + 182);
 
       ctx.fillStyle = "#4f5f54";
       ctx.font = "30px Georgia";
-      ctx.fillText("Participe da Rifa e ajude-nos", canvas.width / 2, padding + 230);
-      ctx.fillText("a realizar esse sonho!", canvas.width / 2, padding + 272);
+      ctx.fillText("Participe da Rifa e ajude-nos", canvas.width / 2, padding + 260);
+      ctx.fillText("a realizar esse sonho!", canvas.width / 2, padding + 312);
 
-      const instructionTitleY = padding + 322;
+      const instructionTitleY = padding + 368;
       ctx.fillStyle = "#7f9583";
       roundRect(ctx, canvas.width / 2 - 150, instructionTitleY - 28, 300, 46, 24);
       ctx.fill();
@@ -348,21 +479,11 @@ export function RifaDetailPage() {
       ctx.textAlign = "left";
       ctx.fillStyle = "#33423a";
       ctx.font = "21px Trebuchet MS";
-      const infoRowTop = padding + 354;
       const instructionX = padding + 24;
-      const instructionStartY = infoRowTop + 34;
-      const instructions = [
-        "1. Escolha entre os numeros disponiveis abaixo.",
-        "2. Pague o valor da rifa por numero escolhido.",
-        "3. Envie o comprovante e seus dados.",
-        "4. Aguarde o sorteio e boa sorte!",
-      ];
       instructions.forEach((line, index) => {
-        ctx.fillText(line, instructionX, instructionStartY + index * 30);
+        ctx.fillText(line, instructionX, instructionStartY + index * instructionLineHeight);
       });
 
-      const priceCardWidth = 300;
-      const priceCardHeight = 132;
       const priceCardX = canvas.width - padding - priceCardWidth;
       const priceCardY = infoRowTop;
 
@@ -400,13 +521,13 @@ export function RifaDetailPage() {
         ctx.stroke();
 
         ctx.fillStyle = sold ? "#596a59" : "#3f4f42";
-        ctx.font = "bold 24px Trebuchet MS";
-        ctx.fillText(numero.numero, x + cardWidth / 2, y + 30);
+        ctx.font = `bold ${numberFontSize}px Trebuchet MS`;
+        ctx.fillText(numero.numero, x + cardWidth / 2, y + numberTextY);
 
         if (sold) {
           ctx.fillStyle = "#4d5c4d";
-          ctx.font = "bold 12px Trebuchet MS";
-          ctx.fillText("RESERVADO", x + cardWidth / 2, y + 41);
+          ctx.font = `bold ${reservedFontSize}px Trebuchet MS`;
+          ctx.fillText("RESERVADO", x + cardWidth / 2, y + reservedTextY);
         }
       });
 
@@ -428,7 +549,7 @@ export function RifaDetailPage() {
       const footerPanelRight = footerPanelX + footerPanelWidth;
 
       ctx.fillStyle = "#dce1d6";
-      roundRect(ctx, footerPanelX, footerY + 124, footerPanelWidth, footerHeight - 154, 22);
+      roundRect(ctx, footerPanelX, footerY + 114, footerPanelWidth, footerHeight - 136, 22);
       ctx.fill();
 
       const caricature = await loadFirstAvailableImage([
@@ -437,13 +558,24 @@ export function RifaDetailPage() {
         "/assets/casal-caricatura.png",
       ]);
 
+      // Carregar foto do prêmio se disponível
+      let fotoPremio: HTMLImageElement | null = null;
+      if (rifaData.rifa.foto_premio) {
+        try {
+          fotoPremio = await loadImage(rifaData.rifa.foto_premio);
+        } catch {
+          fotoPremio = null;
+        }
+      }
+
       const contactCardWidth = 360;
-      const contactCardHeight = 280;
+      const contactCardHeight = 252;
       const gapBetween = 40;
-      const contentStartY = footerY + 148;
+      const contentStartY = footerY + 136;
       const availableWidth = canvas.width - 56 - 48;
+
       const imageMaxWidth = availableWidth - contactCardWidth - gapBetween;
-      const imageMaxHeight = footerHeight - 160;
+      const imageMaxHeight = footerHeight - 150;
 
       let caricatureWidth = 0;
       let caricatureHeight = 0;
@@ -458,7 +590,26 @@ export function RifaDetailPage() {
 
       const imageAreaX = footerPanelRight - imageMaxWidth;
       const contactCardX = imageAreaX - gapBetween - contactCardWidth;
-      const contactCardY = contentStartY + (imageMaxHeight - contactCardHeight) / 2;
+      
+      // Se houver foto do prêmio, desenhar na parte superior e ajustar posição do card
+      let fotoPremioHeight = 0;
+      if (fotoPremio) {
+        const fotoPremioMaxWidth = contactCardWidth;
+        const fotoPremioMaxHeight = 320;
+        const ratio = Math.min(fotoPremioMaxWidth / fotoPremio.width, fotoPremioMaxHeight / fotoPremio.height);
+        const fotoPremioWidth = fotoPremio.width * ratio;
+        fotoPremioHeight = fotoPremio.height * ratio;
+        const fotoPremioX = contactCardX + (contactCardWidth - fotoPremioWidth) / 2;
+        const fotoPremioY = contentStartY;
+
+        // Desenhar a foto
+        ctx.drawImage(fotoPremio, fotoPremioX, fotoPremioY, fotoPremioWidth, fotoPremioHeight);
+      }
+
+      // Posicionar o card de contato abaixo da foto (se houver) ou centralizado
+      const contactCardY = fotoPremio 
+        ? contentStartY + fotoPremioHeight + 25
+        : contentStartY + (imageMaxHeight - contactCardHeight) / 2;
 
       ctx.fillStyle = "#f3f0e7";
       ctx.strokeStyle = "#90a08f";
@@ -503,9 +654,16 @@ export function RifaDetailPage() {
         ctx.fillText("/frontend/public/caricatura-casal.png", imageAreaX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 + 15);
       }
 
-      canvas.toBlob((blob) => {
+      const exportCanvas = createNineBySixteenCanvas(canvas);
+
+      exportCanvas.toBlob((blob) => {
         if (!blob) {
-          throw new Error("Erro ao gerar imagem");
+          notify({
+            title: "Erro ao exportar imagem",
+            description: "Erro ao gerar imagem",
+            kind: "error",
+          });
+          return;
         }
 
         const url = URL.createObjectURL(blob);
@@ -604,23 +762,27 @@ export function RifaDetailPage() {
   return (
     <div className="grid gap-4">
       <Card>
-        {rifaData.rifa.foto_premio && (
-          <div className="aspect-video w-full overflow-hidden bg-slate-100">
-            <img 
-              src={rifaData.rifa.foto_premio} 
-              alt={rifaData.rifa.descricao}
-              className="h-full w-full object-cover"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-          </div>
-        )}
         <CardHeader>
-          <CardTitle>{rifaData.rifa.descricao}</CardTitle>
-          <CardDescription>
-            Sorteio em {formatDate(rifaData.rifa.data_sorteio)} | Valor por numero: {formatCurrency(rifaData.rifa.valor_numero)}
-          </CardDescription>
+          <div className="flex items-start gap-4">
+            <div className="flex-1">
+              <CardTitle>{rifaData.rifa.descricao}</CardTitle>
+              <CardDescription>
+                Sorteio em {formatDate(rifaData.rifa.data_sorteio)} | Valor por numero: {formatCurrency(rifaData.rifa.valor_numero)}
+              </CardDescription>
+            </div>
+            {rifaData.rifa.foto_premio && (
+              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100 shadow-md">
+                <img 
+                  src={rifaData.rifa.foto_premio} 
+                  alt={rifaData.rifa.descricao}
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="grid gap-3">
           <div className="grid gap-2 md:grid-cols-4">

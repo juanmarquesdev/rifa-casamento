@@ -23,10 +23,10 @@ export function formatDate(value: string): string {
 /**
  * Converte um arquivo de imagem para base64
  * @param file Arquivo de imagem
- * @param maxSizeKB Tamanho máximo em KB (padrão: 500KB)
+ * @param maxSizeKB Tamanho máximo em KB (padrão: 1MB)
  * @returns Promise com string base64 (data:image/...;base64,...)
  */
-export function imageToBase64(file: File, maxSizeKB: number = 500): Promise<string> {
+export function imageToBase64(file: File, maxSizeKB: number = 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     // Verificar tipo de arquivo
     if (!file.type.startsWith('image/')) {
