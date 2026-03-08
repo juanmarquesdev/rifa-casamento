@@ -21,6 +21,7 @@ export type RifaResumo = {
   data_sorteio: string;
   status: "ativa" | "sorteada" | "cancelada";
   criada_em: string;
+  foto_premio: string | null;
   total_numeros: number;
   vendidos: number;
   disponiveis: number;
@@ -49,6 +50,7 @@ export type RifaDetalhe = {
   quantidade_numeros: number;
   data_sorteio: string;
   status: "ativa" | "sorteada" | "cancelada";
+  foto_premio: string | null;
 };
 
 export type RifaDetalheResponse = {

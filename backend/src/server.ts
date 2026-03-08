@@ -175,6 +175,7 @@ async function getRifaOrThrow(rifaId: string): Promise<{
   quantidade_numeros: number;
   data_sorteio: string;
   status: string;
+  foto_premio: string | null;
 }> {
   const { data: rifa, error } = await supabase
     .from("rifas")
@@ -188,7 +189,8 @@ async function getRifaOrThrow(rifaId: string): Promise<{
       faturamento_alvo,
       quantidade_numeros,
       data_sorteio,
-      status
+      status,
+      foto_premio
     `
     )
     .eq("id", rifaId)
@@ -321,6 +323,7 @@ app.post("/api/rifas", async (req: Request, res: Response) => {
   const valorNumero = asPositiveNumber(req.body.valorNumero);
   const lucroDesejado = asNonNegativeNumber(req.body.lucroDesejado);
   const dataSorteio = trimText(req.body.dataSorteio);
+  const fotoPremio = trimText(req.body.fotoPremio) || null;
 
   if (
     !descricao ||
@@ -354,6 +357,7 @@ app.post("/api/rifas", async (req: Request, res: Response) => {
       quantidade_numeros: quantidadeNumeros,
       data_sorteio: dataSorteio,
       status: "ativa",
+      foto_premio: fotoPremio,
     });
 
     if (rifaError) throw rifaError;
@@ -439,6 +443,10 @@ app.put("/api/rifas/:id", async (req: Request, res: Response) => {
     const descricao = trimText(req.body.descricao) || current.descricao;
     const dataSorteio = trimText(req.body.dataSorteio) || current.data_sorteio;
     const status = trimText(req.body.status) || current.status;
+    const fotoPremio = 
+      req.body.fotoPremio === undefined
+        ? current.foto_premio
+        : trimText(req.body.fotoPremio) || null;
 
     const valorPremio =
       req.body.valorPremio === undefined
@@ -508,6 +516,7 @@ app.put("/api/rifas/:id", async (req: Request, res: Response) => {
         quantidade_numeros: quantidadeNumeros,
         data_sorteio: dataSorteio,
         status,
+        foto_premio: fotoPremio,
       })
       .eq("id", rifaId);
 

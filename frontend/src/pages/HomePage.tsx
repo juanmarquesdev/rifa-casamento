@@ -17,7 +17,7 @@ import {
 import { Input } from "../components/ui/input";
 import { useToast } from "../components/ui/toast";
 import { atualizarRifa, criarRifa, deletarRifa, listarRifas } from "../services/api";
-import { formatCurrency, formatDate } from "../lib/utils";
+import { formatCurrency, formatDate, imageToBase64 } from "../lib/utils";
 import type { RifaResumo } from "../types";
 
 const pageSize = 8;
@@ -28,6 +28,7 @@ type RifaFormState = {
   valorNumero: string;
   lucroDesejado: string;
   dataSorteio: string;
+  fotoPremio: string;
 };
 
 const initialForm: RifaFormState = {
@@ -36,6 +37,7 @@ const initialForm: RifaFormState = {
   valorNumero: "",
   lucroDesejado: "",
   dataSorteio: "",
+  fotoPremio: "",
 };
 
 export function HomePage() {
@@ -76,6 +78,27 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const base64 = await imageToBase64(file, 500);
+      if (isEdit) {
+        setEditing((prev) => (prev ? { ...prev, foto_premio: base64 } : null));
+      } else {
+        setForm((prev) => ({ ...prev, fotoPremio: base64 }));
+      }
+    } catch (error) {
+      notify({
+        title: "Erro ao carregar imagem",
+        description: (error as Error).message,
+        kind: "error",
+      });
+      event.target.value = '';
+    }
+  }
+
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
@@ -85,6 +108,7 @@ export function HomePage() {
         valorNumero: Number(form.valorNumero),
         lucroDesejado: Number(form.lucroDesejado || 0),
         dataSorteio: form.dataSorteio,
+        fotoPremio: form.fotoPremio || undefined,
       });
 
       notify({
@@ -117,6 +141,7 @@ export function HomePage() {
         lucroDesejado: editing.lucro_desejado,
         dataSorteio: editing.data_sorteio,
         status: editing.status,
+        fotoPremio: editing.foto_premio || undefined,
       });
       notify({ title: "Rifa atualizada", kind: "success" });
       setEditing(null);
@@ -207,6 +232,33 @@ export function HomePage() {
                   onChange={(event) => setForm((prev) => ({ ...prev, dataSorteio: event.target.value }))}
                   required
                 />
+                <div className="grid gap-1">
+                  <label className="text-sm font-medium">Foto do prêmio (opcional, máx 500KB)</label>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e, false)}
+                    className="cursor-pointer"
+                  />
+                  {form.fotoPremio && (
+                    <div className="relative mt-2 h-32 w-32 overflow-hidden rounded border">
+                      <img 
+                        src={form.fotoPremio} 
+                        alt="Preview"
+                        className="h-full w-full object-cover"
+                      />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute right-1 top-1 h-6 w-6 p-0"
+                        onClick={() => setForm((prev) => ({ ...prev, fotoPremio: "" }))}
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  )}
+                </div>
                 <DialogFooter>
                   <Button type="submit">Salvar</Button>
                 </DialogFooter>
@@ -241,6 +293,18 @@ export function HomePage() {
               );
               return (
                 <Card key={rifa.id} className="overflow-hidden">
+                  {rifa.foto_premio && (
+                    <div className="aspect-video w-full overflow-hidden bg-slate-100">
+                      <img 
+                        src={rifa.foto_premio} 
+                        alt={rifa.descricao}
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
                   <CardHeader>
                     <CardTitle className="line-clamp-1">{rifa.descricao}</CardTitle>
                     <CardDescription>Sorteio em {formatDate(rifa.data_sorteio)}</CardDescription>
@@ -343,6 +407,33 @@ export function HomePage() {
                 }
                 required
               />
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Foto do prêmio (opcional, máx 500KB)</label>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleImageUpload(e, true)}
+                  className="cursor-pointer"
+                />
+                {editing.foto_premio && (
+                  <div className="relative mt-2 h-32 w-32 overflow-hidden rounded border">
+                    <img 
+                      src={editing.foto_premio} 
+                      alt="Preview"
+                      className="h-full w-full object-cover"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="absolute right-1 top-1 h-6 w-6 p-0"
+                      onClick={() => setEditing((prev) => (prev ? { ...prev, foto_premio: null } : null))}
+                    >
+                      ×
+                    </Button>
+                  </div>
+                )}
+              </div>
               <Input
                 value={editing.status}
                 onChange={(event) =>

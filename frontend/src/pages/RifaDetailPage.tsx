@@ -604,6 +604,18 @@ export function RifaDetailPage() {
   return (
     <div className="grid gap-4">
       <Card>
+        {rifaData.rifa.foto_premio && (
+          <div className="aspect-video w-full overflow-hidden bg-slate-100">
+            <img 
+              src={rifaData.rifa.foto_premio} 
+              alt={rifaData.rifa.descricao}
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          </div>
+        )}
         <CardHeader>
           <CardTitle>{rifaData.rifa.descricao}</CardTitle>
           <CardDescription>

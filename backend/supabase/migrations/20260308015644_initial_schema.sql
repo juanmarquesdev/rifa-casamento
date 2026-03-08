@@ -2,6 +2,7 @@
 CREATE TABLE rifas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     descricao TEXT NOT NULL,
+    foto_premio TEXT,
     valor_premio DECIMAL(10, 2) NOT NULL,
     valor_numero DECIMAL(10, 2) NOT NULL,
     lucro_desejado DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -28,15 +29,13 @@ CREATE TABLE numeros_rifa (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     rifa_id UUID NOT NULL REFERENCES rifas(id) ON DELETE CASCADE,
     numero TEXT NOT NULL,
-    pessoa_id UUID REFERENCES pessoas(id) ON DELETE
-    SET
-        NULL,
-        pago BOOLEAN NOT NULL DEFAULT false,
-        valor_pago DECIMAL(10, 2),
-        vendido_em TIMESTAMP WITH TIME ZONE,
-        criado_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-        atualizado_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-        UNIQUE(rifa_id, numero)
+    pessoa_id UUID REFERENCES pessoas(id) ON DELETE SET NULL,
+    pago BOOLEAN NOT NULL DEFAULT false,
+    valor_pago DECIMAL(10, 2),
+    vendido_em TIMESTAMP WITH TIME ZONE,
+    criado_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    atualizado_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    UNIQUE(rifa_id, numero)
 );
 
 -- Tabela de sorteios
