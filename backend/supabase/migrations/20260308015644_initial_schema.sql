@@ -34,7 +34,7 @@ CREATE TABLE numeros_rifa (
     valor_pago DECIMAL(10, 2),
     vendido_em TIMESTAMP WITH TIME ZONE,
     criado_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    atualizado_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    atualizada_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     UNIQUE(rifa_id, numero)
 );
 

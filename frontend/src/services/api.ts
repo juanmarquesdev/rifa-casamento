@@ -59,7 +59,8 @@ export function criarRifa(payload: {
   valorNumero: number;
   lucroDesejado: number;
   dataSorteio: string;
-  fotoPremio?: string;
+  imagemRifa?: string;
+  corRifa?: string;
 }) {
   return request<{ id: string; quantidadeNumeros: number; faturamentoAlvo: number }>("/rifas", {
     method: "POST",
@@ -76,7 +77,8 @@ export function atualizarRifa(
     lucroDesejado: number;
     dataSorteio: string;
     status: "ativa" | "sorteada" | "cancelada";
-    fotoPremio: string;
+    imagemRifa: string;
+    corRifa: string;
   }>,
 ) {
   return request<{ ok: boolean }>(`/rifas/${rifaId}`, {

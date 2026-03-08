@@ -54,8 +54,21 @@ function parsePagination(req: Request): Pagination {
   };
 }
 
-function format4Digits(value: number): string {
-  return String(value).padStart(4, "0");
+function asHexColor(value: unknown): string | null {
+  const color = trimText(value);
+  if (!color) {
+    return null;
+  }
+
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+    return null;
+  }
+
+  return color.toUpperCase();
+}
+
+function format3Digits(value: number): string {
+  return String(value).padStart(3, "0");
 }
 
 async function getOrCreatePessoa(payload: PessoaPayload): Promise<string> {
@@ -129,21 +142,21 @@ function calcularPlanejamento(
 } {
   const faturamentoAlvo = valorPremio + lucroDesejado;
   const quantidadeNumeros = Math.ceil(faturamentoAlvo / valorNumero);
-  if (quantidadeNumeros > 9000) {
+  if (quantidadeNumeros > 900) {
     throw new Error(
-      "A quantidade de numeros necessaria ultrapassa o limite de 9000 para 4 digitos. Ajuste valor do numero ou meta de lucro."
+      "A quantidade de numeros necessaria ultrapassa o limite de 900 para 3 digitos. Ajuste valor do numero ou meta de lucro."
     );
   }
   return { faturamentoAlvo, quantidadeNumeros };
 }
 
-function gerarNumerosAleatorios4Digitos(
+function gerarNumerosAleatorios3Digitos(
   quantidade: number,
   existentes: Set<string> = new Set()
 ): string[] {
   const pool: string[] = [];
-  for (let i = 1000; i <= 9999; i += 1) {
-    const numero = format4Digits(i);
+  for (let i = 100; i <= 999; i += 1) {
+    const numero = format3Digits(i);
     if (!existentes.has(numero)) {
       pool.push(numero);
     }
@@ -151,7 +164,7 @@ function gerarNumerosAleatorios4Digitos(
 
   if (quantidade > pool.length) {
     throw new Error(
-      "Nao ha numeros de 4 digitos suficientes para gerar a quantidade desejada."
+      "Nao ha numeros de 3 digitos suficientes para gerar a quantidade desejada."
     );
   }
 
@@ -175,7 +188,8 @@ async function getRifaOrThrow(rifaId: string): Promise<{
   quantidade_numeros: number;
   data_sorteio: string;
   status: string;
-  foto_premio: string | null;
+  imagem_rifa: string | null;
+  cor_rifa: string;
 }> {
   const { data: rifa, error } = await supabase
     .from("rifas")
@@ -190,7 +204,8 @@ async function getRifaOrThrow(rifaId: string): Promise<{
       quantidade_numeros,
       data_sorteio,
       status,
-      foto_premio
+      imagem_rifa,
+      cor_rifa
     `
     )
     .eq("id", rifaId)
@@ -323,7 +338,8 @@ app.post("/api/rifas", async (req: Request, res: Response) => {
   const valorNumero = asPositiveNumber(req.body.valorNumero);
   const lucroDesejado = asNonNegativeNumber(req.body.lucroDesejado);
   const dataSorteio = trimText(req.body.dataSorteio);
-  const fotoPremio = trimText(req.body.fotoPremio) || null;
+  const imagemRifa = trimText(req.body.imagemRifa) || null;
+  const corRifa = asHexColor(req.body.corRifa) ?? "#C8D2C6";
 
   if (
     !descricao ||
@@ -342,7 +358,7 @@ app.post("/api/rifas", async (req: Request, res: Response) => {
       valorNumero,
       lucroDesejado
     );
-    const numeros = gerarNumerosAleatorios4Digitos(quantidadeNumeros);
+    const numeros = gerarNumerosAleatorios3Digitos(quantidadeNumeros);
 
     const rifaId = uuidv4();
 
@@ -357,7 +373,8 @@ app.post("/api/rifas", async (req: Request, res: Response) => {
       quantidade_numeros: quantidadeNumeros,
       data_sorteio: dataSorteio,
       status: "ativa",
-      foto_premio: fotoPremio,
+      imagem_rifa: imagemRifa,
+      cor_rifa: corRifa,
     });
 
     if (rifaError) throw rifaError;
@@ -443,10 +460,14 @@ app.put("/api/rifas/:id", async (req: Request, res: Response) => {
     const descricao = trimText(req.body.descricao) || current.descricao;
     const dataSorteio = trimText(req.body.dataSorteio) || current.data_sorteio;
     const status = trimText(req.body.status) || current.status;
-    const fotoPremio = 
-      req.body.fotoPremio === undefined
-        ? current.foto_premio
-        : trimText(req.body.fotoPremio) || null;
+    const imagemRifa =
+      req.body.imagemRifa === undefined
+        ? current.imagem_rifa
+        : trimText(req.body.imagemRifa) || null;
+    const corRifa =
+      req.body.corRifa === undefined
+        ? current.cor_rifa
+        : asHexColor(req.body.corRifa);
 
     const valorPremio =
       req.body.valorPremio === undefined
@@ -466,7 +487,8 @@ app.put("/api/rifas/:id", async (req: Request, res: Response) => {
       !dataSorteio ||
       !valorPremio ||
       !valorNumero ||
-      lucroDesejado === null
+      lucroDesejado === null ||
+      !corRifa
     ) {
       res.status(400).json({ message: "Dados invalidos para atualizar rifa." });
       return;
@@ -516,7 +538,8 @@ app.put("/api/rifas/:id", async (req: Request, res: Response) => {
         quantidade_numeros: quantidadeNumeros,
         data_sorteio: dataSorteio,
         status,
-        foto_premio: fotoPremio,
+        imagem_rifa: imagemRifa,
+        cor_rifa: corRifa,
       })
       .eq("id", rifaId);
 
@@ -528,7 +551,7 @@ app.put("/api/rifas/:id", async (req: Request, res: Response) => {
     if (quantidadeNumeros > existingLength) {
       const existingNumbers = new Set(existing?.map((item) => item.numero) || []);
       const toGenerate = quantidadeNumeros - existingLength;
-      const generated = gerarNumerosAleatorios4Digitos(toGenerate, existingNumbers);
+      const generated = gerarNumerosAleatorios3Digitos(toGenerate, existingNumbers);
 
       const numerosParaInserir = generated.map((numero) => ({
         id: uuidv4(),

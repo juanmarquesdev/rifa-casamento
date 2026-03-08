@@ -26,7 +26,7 @@ import {
   removerNumero,
 } from "../services/api";
 import type { NumeroRifa, Pessoa, RifaDetalheResponse } from "../types";
-import { formatCurrency, formatDate, parseDateForDisplay } from "../lib/utils";
+import { formatCurrency, formatDate } from "../lib/utils";
 
 const pageSize = 30;
 
@@ -224,91 +224,71 @@ export function RifaDetailPage() {
     });
   }
 
-  async function loadFirstAvailableImage(sources: string[]): Promise<HTMLImageElement | null> {
-    for (const source of sources) {
-      try {
-        return await loadImage(source);
-      } catch {
-        continue;
-      }
-    }
-    return null;
+  function clamp(value: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, value));
   }
 
-  function drawCurvedText(
+  function drawImageCover(
     ctx: CanvasRenderingContext2D,
-    text: string,
-    centerX: number,
-    centerY: number,
-    radius: number,
-    startAngle: number
+    image: HTMLImageElement,
+    x: number,
+    y: number,
+    width: number,
+    height: number
   ) {
-    ctx.save();
-    const angleStep = 0.32;
-    const totalAngle = angleStep * (text.length - 1);
-    let angle = startAngle - totalAngle / 2;
+    const sourceRatio = image.width / image.height;
+    const targetRatio = width / height;
 
-    for (let i = 0; i < text.length; i += 1) {
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate(angle);
-      ctx.textAlign = "center";
-      ctx.fillText(text[i], 0, -radius);
-      ctx.restore();
-      angle += angleStep;
-    }
-    ctx.restore();
-  }
-
-  function createNineBySixteenCanvas(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement {
-    const targetRatio = 9 / 16;
-    const sourceWidth = sourceCanvas.width;
-    const sourceHeight = sourceCanvas.height;
-    const sourceRatio = sourceWidth / sourceHeight;
-
-    let finalWidth = sourceWidth;
-    let finalHeight = sourceHeight;
+    let sourceWidth = image.width;
+    let sourceHeight = image.height;
+    let sourceX = 0;
+    let sourceY = 0;
 
     if (sourceRatio > targetRatio) {
-      finalHeight = Math.ceil(sourceWidth / targetRatio);
+      sourceWidth = image.height * targetRatio;
+      sourceX = (image.width - sourceWidth) / 2;
     } else {
-      finalWidth = Math.ceil(sourceHeight * targetRatio);
+      sourceHeight = image.width / targetRatio;
+      sourceY = (image.height - sourceHeight) / 2;
     }
 
-    const finalCanvas = document.createElement("canvas");
-    finalCanvas.width = finalWidth;
-    finalCanvas.height = finalHeight;
-
-    const finalCtx = finalCanvas.getContext("2d");
-    if (!finalCtx) {
-      throw new Error("Nao foi possivel criar contexto final do canvas");
-    }
-
-    finalCtx.fillStyle = "#c8d2c6";
-    finalCtx.fillRect(0, 0, finalWidth, finalHeight);
-
-    const offsetX = (finalWidth - sourceWidth) / 2;
-    const offsetY = (finalHeight - sourceHeight) / 2;
-    finalCtx.drawImage(sourceCanvas, offsetX, offsetY);
-
-    return finalCanvas;
+    ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
   }
 
-  function calculateGridColumns(totalNumbers: number, padding: number, gap: number, preferredCardWidth: number): number {
-    const minCols = 12;
-    const maxCols = 18;
-    const minCardWidth = 52;
-    const baseContentWidth = 980 - padding * 2;
+  function calculateGridLayout(total: number, width: number, height: number) {
+    const safeTotal = Math.max(1, total);
+    const minCols = 3;
+    const maxCols = Math.min(22, safeTotal);
+    const preferredCols = Math.round(Math.sqrt(safeTotal * (width / height)) * 1.2);
 
-    const colsByMinCard = Math.floor((baseContentWidth + gap) / (minCardWidth + gap));
-    const colsByPreferredCard = Math.floor((baseContentWidth + gap) / (preferredCardWidth + gap));
-    const maxAllowedCols = Math.max(minCols, Math.min(maxCols, colsByMinCard));
+    let best = {
+      cols: clamp(preferredCols, minCols, maxCols),
+      rows: Math.ceil(safeTotal / clamp(preferredCols, minCols, maxCols)),
+      gap: 8,
+    };
 
-    const idealRows = Math.max(6, Math.min(10, Math.round(Math.sqrt(totalNumbers / 1.8))));
-    const colsByQuantity = Math.ceil(totalNumbers / idealRows);
-    const wantedCols = Math.max(colsByQuantity, colsByPreferredCard);
+    let bestScore = Number.POSITIVE_INFINITY;
 
-    return Math.max(minCols, Math.min(maxAllowedCols, wantedCols));
+    for (let cols = minCols; cols <= maxCols; cols += 1) {
+      const rows = Math.ceil(safeTotal / cols);
+      const gap = clamp(Math.floor(Math.min(width / (cols * 10), height / (rows * 12))), 4, 12);
+      const cellWidth = (width - gap * (cols - 1)) / cols;
+      const cellHeight = (height - gap * (rows - 1)) / rows;
+      if (cellWidth < 28 || cellHeight < 24) {
+        continue;
+      }
+
+      const ratioPenalty = Math.abs(cellWidth / Math.max(1, cellHeight) - 1.65);
+      const fillPenalty = Math.abs(rows * cols - safeTotal) / safeTotal;
+      const score = ratioPenalty * 2 + fillPenalty;
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = { cols, rows, gap };
+      }
+    }
+
+    return best;
   }
 
   async function handleExportImage() {
@@ -318,11 +298,16 @@ export function RifaDetailPage() {
 
     setExporting(true);
 
-    // Garantir que a fonte Great Vibes esteja carregada
-    await document.fonts.load('58px "Great Vibes"');
     try {
       const allNumbers = await fetchAllNumbersForExport(id);
       const sortedNumbers = [...allNumbers].sort((a, b) => Number(a.numero) - Number(b.numero));
+      const imagemRifa = rifaData.rifa.imagem_rifa;
+
+      if (!imagemRifa) {
+        throw new Error("A rifa nao possui imagem para exportacao.");
+      }
+
+      const artImage = await loadImage(imagemRifa);
 
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
@@ -330,335 +315,80 @@ export function RifaDetailPage() {
         throw new Error("Nao foi possivel criar contexto do canvas");
       }
 
-      const padding = 24;
-      const preferredCardWidth = 72;
-      const cardHeight = 42;
-      const gap = 9;
-      const cols = calculateGridColumns(sortedNumbers.length, padding, gap, preferredCardWidth);
-
-      const minCardWidth = 56;
-      const maxCardWidth = 78;
-      const baseContentWidth = 980 - padding * 2;
-      const estimatedCardWidth = Math.floor((baseContentWidth - (cols - 1) * gap) / cols);
-      let cardWidth = Math.max(minCardWidth, Math.min(maxCardWidth, estimatedCardWidth));
-
-      let numberFontSize = cardWidth >= 72 ? 22 : 20;
-      let reservedFontSize = cardWidth >= 72 ? 12 : 11;
-      let numberTextY = Math.round(cardHeight * 0.69);
-      let reservedTextY = cardHeight - 3;
-      const instructions = [
-        "1. Escolha entre os numeros disponiveis abaixo.",
-        "2. Pague o valor da rifa por numero escolhido.",
-        "3. Envie o comprovante e seus dados.",
-        "4. Aguarde o sorteio e boa sorte!",
-      ];
-
-      const infoRowTop = padding + 388;
-      const instructionStartY = infoRowTop + 34;
-      const instructionLineHeight = 34;
-      const instructionBlockBottom =
-        instructionStartY + (instructions.length - 1) * instructionLineHeight + 24;
-
-      const priceCardWidth = 300;
-      const priceCardHeight = 132;
-      const infoBlockBottom = Math.max(instructionBlockBottom, infoRowTop + priceCardHeight);
-      const gridTopSpacing = 22;
-
-      const rows = Math.ceil(sortedNumbers.length / cols);
-      const baseFooterHeight = 820;
-      const referenceRows = 10;
-      const footerGrowPerMissingRow = 70;
-      const footerHeight =
-        baseFooterHeight + Math.max(0, referenceRows - rows) * footerGrowPerMissingRow;
-
-      let gridWidth = cols * cardWidth + (cols - 1) * gap;
-      const minCanvasWidth = Math.max(980, padding * 2 + gridWidth);
-      const gridStartY = infoBlockBottom + gridTopSpacing;
-      const gridHeight = rows * cardHeight + Math.max(0, rows - 1) * gap;
-      const minCanvasHeight = gridStartY + gridHeight + footerHeight;
-      const ratioCanvasWidth = Math.ceil((minCanvasHeight * 9) / 16);
-      const canvasWidth = Math.max(minCanvasWidth, ratioCanvasWidth);
-      const canvasHeight = Math.ceil((canvasWidth * 16) / 9);
-
+      const canvasWidth = 1080;
+      const canvasHeight = 1920;
       canvas.width = canvasWidth;
       canvas.height = canvasHeight;
 
-      const availableGridWidth = canvasWidth - padding * 2;
-      const stretchedCardWidth = Math.floor((availableGridWidth - (cols - 1) * gap) / cols);
-      cardWidth = Math.max(minCardWidth, Math.min(maxCardWidth, stretchedCardWidth));
-      gridWidth = cols * cardWidth + (cols - 1) * gap;
-      numberFontSize = cardWidth >= 72 ? 22 : 20;
-      reservedFontSize = cardWidth >= 72 ? 12 : 11;
-      numberTextY = Math.round(cardHeight * 0.69);
-      reservedTextY = cardHeight - 3;
+      const baseColor = /^#[0-9A-F]{6}$/i.test(rifaData.rifa.cor_rifa)
+        ? rifaData.rifa.cor_rifa.toUpperCase()
+        : "#C8D2C6";
+      const boxBg = "#FFFFFF";
+      const boxStroke = "#DFE4DA";
+      const textColor = "#5F7348";
+      const soldBg = "#DCE7D1";
+      const soldText = "#4D6236";
+      const soldStroke = "#B7C8A4";
 
-      ctx.fillStyle = "#c8d2c6";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = "#e8e4d9";
-      roundRect(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 20);
-      ctx.fill();
-
-      ctx.strokeStyle = "#7f8f81";
-      ctx.lineWidth = 4;
-      roundRect(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 20);
-      ctx.stroke();
-
-      ctx.globalAlpha = 0.12;
-      for (let i = 0; i < 8; i += 1) {
-        ctx.fillStyle = "#5f715f";
-        ctx.beginPath();
-        ctx.ellipse(120 + i * 90, 150 + (i % 2) * 30, 35, 120, Math.PI / 8, 0, Math.PI * 2);
-        ctx.fill();
+      const scaledArtHeight = Math.round((canvasWidth / artImage.width) * artImage.height);
+      let topHeight = clamp(scaledArtHeight, 560, 1480);
+      const minBottomHeight = 360;
+      if (canvasHeight - topHeight < minBottomHeight) {
+        topHeight = canvasHeight - minBottomHeight;
       }
-      ctx.globalAlpha = 1;
+      const bottomHeight = canvasHeight - topHeight;
 
-      const date = parseDateForDisplay(rifaData.rifa.data_sorteio);
-      const day = !date ? "--" : String(date.getDate()).padStart(2, "0");
-      const month = !date
-        ? "MES"
-        : date
-            .toLocaleDateString("pt-BR", { month: "short" })
-            .toUpperCase();
+      drawImageCover(ctx, artImage, 0, 0, canvasWidth, topHeight);
 
-      const dateBubbleSize = 165;
-      const bubbleX = canvas.width - padding - dateBubbleSize;
-      const bubbleY = padding + 8;
-      const bubbleCenterX = bubbleX + dateBubbleSize / 2;
-      const bubbleCenterY = bubbleY + dateBubbleSize / 2;
+      ctx.fillStyle = baseColor;
+      ctx.fillRect(0, topHeight, canvasWidth, bottomHeight);
 
-      ctx.fillStyle = "#8fa192";
-      ctx.beginPath();
-      ctx.arc(bubbleCenterX, bubbleCenterY, dateBubbleSize / 2, 0, Math.PI * 2);
-      ctx.fill();
+      const paddingX = 32;
+      const bottomInnerTop = topHeight + 24;
+      const bottomInnerHeight = bottomHeight - 48;
 
-      ctx.strokeStyle = "#6f8373";
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.arc(bubbleCenterX, bubbleCenterY, dateBubbleSize / 2 - 5, 0, Math.PI * 2);
-      ctx.stroke();
+      const gridTop = bottomInnerTop;
+      const gridHeight = bottomInnerHeight;
+      const gridWidth = canvasWidth - paddingX * 2;
 
-      ctx.fillStyle = "#f7f6f1";
+      const { cols, rows, gap } = calculateGridLayout(sortedNumbers.length, gridWidth, gridHeight);
+      const cardWidth = (gridWidth - gap * (cols - 1)) / cols;
+      const cardHeight = (gridHeight - gap * (rows - 1)) / rows;
+      const numberFontSize = clamp(cardHeight * 0.42, 16, 34);
+      const reservedNumberFontSize = clamp(cardHeight * 0.3, 13, 28);
+      const reservedNameFontSize = clamp(cardHeight * 0.2, 10, 16);
+
       ctx.textAlign = "center";
-      ctx.font = "bold 24px Trebuchet MS";
-      drawCurvedText(
-        ctx,
-        "SORTEIO",
-        bubbleCenterX,
-        bubbleCenterY,
-        dateBubbleSize * 0.33,
-        -Math.PI / 38
-      );
-      ctx.font = "bold 54px Trebuchet MS";
-      ctx.fillText(day, bubbleCenterX, bubbleY + dateBubbleSize * 0.6);
-      ctx.font = "bold 25px Trebuchet MS";
-      ctx.fillText(month, bubbleCenterX, bubbleY + dateBubbleSize * 0.82);
-
-      ctx.fillStyle = "#2f3a33";
-      ctx.font = "84px Great Vibes";
-      ctx.textAlign = "center";
-      ctx.fillText("Rifa Casamento", canvas.width / 2, padding + 108);
-      ctx.fillText("Samara e Juan", canvas.width / 2, padding + 206);
-
-      ctx.fillStyle = "#4f5f54";
-      ctx.font = "30px Georgia";
-      ctx.fillText("Participe da Rifa e ajude-nos", canvas.width / 2, padding + 260);
-      ctx.fillText("a realizar esse sonho!", canvas.width / 2, padding + 312);
-
-      const instructionTitleY = padding + 368;
-      ctx.fillStyle = "#7f9583";
-      roundRect(ctx, canvas.width / 2 - 150, instructionTitleY - 28, 300, 46, 24);
-      ctx.fill();
-      ctx.strokeStyle = "#5f7261";
-      ctx.lineWidth = 2;
-      roundRect(ctx, canvas.width / 2 - 150, instructionTitleY - 28, 300, 46, 24);
-      ctx.stroke();
-
-      ctx.fillStyle = "#f6f4ee";
-      ctx.font = "bold 24px Trebuchet MS";
-      ctx.fillText("COMO FUNCIONA?", canvas.width / 2, instructionTitleY + 2);
-
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#33423a";
-      ctx.font = "21px Trebuchet MS";
-      const instructionX = padding + 24;
-      instructions.forEach((line, index) => {
-        ctx.fillText(line, instructionX, instructionStartY + index * instructionLineHeight);
-      });
-
-      const priceCardX = canvas.width - padding - priceCardWidth;
-      const priceCardY = infoRowTop;
-
-      ctx.fillStyle = "#f3f0e7";
-      ctx.strokeStyle = "#90a08f";
-      ctx.lineWidth = 2;
-      roundRect(ctx, priceCardX, priceCardY, priceCardWidth, priceCardHeight, 16);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#3d4c42";
-      ctx.font = "bold 22px Trebuchet MS";
-      ctx.fillText("Valor da Rifa", priceCardX + 16, priceCardY + 34);
-      ctx.font = "bold 34px Trebuchet MS";
-      ctx.fillText(formatCurrency(rifaData.rifa.valor_numero), priceCardX + 16, priceCardY + 80);
-      ctx.font = "17px Trebuchet MS";
-      ctx.fillText("por numero", priceCardX + 16, priceCardY + 110);
-
-      const gridStartX = (canvas.width - gridWidth) / 2;
-      ctx.textAlign = "center";
-
       sortedNumbers.forEach((numero, index) => {
         const col = index % cols;
         const row = Math.floor(index / cols);
-        const x = gridStartX + col * (cardWidth + gap);
-        const y = gridStartY + row * (cardHeight + gap);
+        const x = paddingX + col * (cardWidth + gap);
+        const y = gridTop + row * (cardHeight + gap);
         const sold = Boolean(numero.pessoa_id);
 
-        ctx.fillStyle = sold ? "#bac4b4" : "#f6f5f0";
-        ctx.strokeStyle = sold ? "#7e8f7a" : "#9fae9b";
-        ctx.lineWidth = 2;
-        roundRect(ctx, x, y, cardWidth, cardHeight, 20);
+        ctx.fillStyle = sold ? soldBg : boxBg;
+        ctx.strokeStyle = sold ? soldStroke : boxStroke;
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, x, y, cardWidth, cardHeight, clamp(cardHeight * 0.22, 7, 14));
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = sold ? "#596a59" : "#3f4f42";
-        ctx.font = `bold ${numberFontSize}px Trebuchet MS`;
-        ctx.fillText(numero.numero, x + cardWidth / 2, y + numberTextY);
+        ctx.fillStyle = sold ? soldText : textColor;
+        ctx.font = `600 ${sold ? reservedNumberFontSize : numberFontSize}px Trebuchet MS`;
+        ctx.fillText(numero.numero, x + cardWidth / 2, y + (sold ? cardHeight * 0.44 : cardHeight * 0.62));
 
         if (sold) {
-          ctx.fillStyle = "#4d5c4d";
-          ctx.font = `bold ${reservedFontSize}px Trebuchet MS`;
-          ctx.fillText("RESERVADO", x + cardWidth / 2, y + reservedTextY);
+          const rawName = (numero.nome || "Reservado").trim();
+          const maxChars = Math.max(6, Math.floor(cardWidth / 8));
+          const displayName =
+            rawName.length > maxChars ? `${rawName.slice(0, Math.max(4, maxChars - 1))}…` : rawName;
+
+          ctx.font = `600 ${reservedNameFontSize}px Trebuchet MS`;
+          ctx.fillText(displayName, x + cardWidth / 2, y + cardHeight * 0.78);
         }
       });
 
-      const footerY = gridStartY + gridHeight;
-      
-      ctx.fillStyle = "#7d8d7c";
-      roundRect(ctx, canvas.width / 2 - 270, footerY + 24, 540, 84, 32);
-      ctx.fill();
-
-      ctx.fillStyle = "#f8f7f2";
-      ctx.font = "bold 27px Trebuchet MS";
-      ctx.textAlign = "center";
-      ctx.fillText(`PREMIO: ${formatCurrency(rifaData.rifa.valor_premio)}`, canvas.width / 2, footerY + 60);
-      ctx.font = "bold 20px Trebuchet MS";
-      ctx.fillText(`ou ${rifaData.rifa.descricao || "descricao da rifa"}`, canvas.width / 2, footerY + 90);
-
-      const footerPanelX = 28;
-      const footerPanelWidth = canvas.width - 56;
-      const footerPanelRight = footerPanelX + footerPanelWidth;
-
-      ctx.fillStyle = "#dce1d6";
-      roundRect(ctx, footerPanelX, footerY + 114, footerPanelWidth, footerHeight - 136, 22);
-      ctx.fill();
-
-      const caricature = await loadFirstAvailableImage([
-        "/caricatura-casal.png",
-        "/casal-caricatura.png",
-        "/assets/casal-caricatura.png",
-      ]);
-
-      // Carregar foto do prêmio se disponível
-      let fotoPremio: HTMLImageElement | null = null;
-      if (rifaData.rifa.foto_premio) {
-        try {
-          fotoPremio = await loadImage(rifaData.rifa.foto_premio);
-        } catch {
-          fotoPremio = null;
-        }
-      }
-
-      const contactCardWidth = 360;
-      const contactCardHeight = 252;
-      const gapBetween = 40;
-      const contentStartY = footerY + 136;
-      const availableWidth = canvas.width - 56 - 48;
-
-      const imageMaxWidth = availableWidth - contactCardWidth - gapBetween;
-      const imageMaxHeight = footerHeight - 150;
-
-      let caricatureWidth = 0;
-      let caricatureHeight = 0;
-      let caricatureX = 0;
-      let caricatureY = 0;
-
-      if (caricature) {
-        const ratio = Math.min(imageMaxWidth / caricature.width, imageMaxHeight / caricature.height);
-        caricatureWidth = caricature.width * ratio;
-        caricatureHeight = caricature.height * ratio;
-      }
-
-      const imageAreaX = footerPanelRight - imageMaxWidth;
-      const contactCardX = imageAreaX - gapBetween - contactCardWidth;
-      
-      // Se houver foto do prêmio, desenhar na parte superior e ajustar posição do card
-      let fotoPremioHeight = 0;
-      if (fotoPremio) {
-        const fotoPremioMaxWidth = contactCardWidth;
-        const fotoPremioMaxHeight = 320;
-        const ratio = Math.min(fotoPremioMaxWidth / fotoPremio.width, fotoPremioMaxHeight / fotoPremio.height);
-        const fotoPremioWidth = fotoPremio.width * ratio;
-        fotoPremioHeight = fotoPremio.height * ratio;
-        const fotoPremioX = contactCardX + (contactCardWidth - fotoPremioWidth) / 2;
-        const fotoPremioY = contentStartY;
-
-        // Desenhar a foto
-        ctx.drawImage(fotoPremio, fotoPremioX, fotoPremioY, fotoPremioWidth, fotoPremioHeight);
-      }
-
-      // Posicionar o card de contato abaixo da foto (se houver) ou centralizado
-      const contactCardY = fotoPremio 
-        ? contentStartY + fotoPremioHeight + 25
-        : contentStartY + (imageMaxHeight - contactCardHeight) / 2;
-
-      ctx.fillStyle = "#f3f0e7";
-      ctx.strokeStyle = "#90a08f";
-      ctx.lineWidth = 2;
-      roundRect(ctx, contactCardX, contactCardY, contactCardWidth, contactCardHeight, 16);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#3d4c42";
-      ctx.font = "bold 26px Trebuchet MS";
-      ctx.fillText("Contato Juan (Noivo)", contactCardX + contactCardWidth / 2, contactCardY + 48);
-      ctx.font = "24px Trebuchet MS";
-      ctx.fillText("(19) 99296-1995", contactCardX + contactCardWidth / 2, contactCardY + 88);
-
-      ctx.strokeStyle = "#b0b8af";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(contactCardX + 30, contactCardY + 118);
-      ctx.lineTo(contactCardX + contactCardWidth - 30, contactCardY + 118);
-      ctx.stroke();
-
-      ctx.fillStyle = "#3d4c42";
-      ctx.font = "bold 26px Trebuchet MS";
-      ctx.fillText("Chave Pix", contactCardX + contactCardWidth / 2, contactCardY + 162);
-      ctx.font = "24px Trebuchet MS";
-      ctx.fillText("(19) 99296-1995", contactCardX + contactCardWidth / 2, contactCardY + 202);
-      ctx.font = "21px Trebuchet MS";
-      ctx.fillStyle = "#5f6f5e";
-      ctx.fillText("Nubank", contactCardX + contactCardWidth / 2, contactCardY + 238);
-
-      caricatureX = footerPanelRight - caricatureWidth;
-      caricatureY = contentStartY + (imageMaxHeight - caricatureHeight) / 2;
-
-      if (caricature) {
-        ctx.drawImage(caricature, caricatureX, caricatureY, caricatureWidth, caricatureHeight);
-      } else {
-        ctx.fillStyle = "#5f6f5e";
-        ctx.font = "bold 18px Trebuchet MS";
-        ctx.textAlign = "center";
-        ctx.fillText("Adicione a caricatura em", imageAreaX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 - 10);
-        ctx.fillText("/frontend/public/caricatura-casal.png", imageAreaX + imageMaxWidth / 2, contentStartY + imageMaxHeight / 2 + 15);
-      }
-
-      const exportCanvas = createNineBySixteenCanvas(canvas);
-
-      exportCanvas.toBlob((blob) => {
+      canvas.toBlob((blob) => {
         if (!blob) {
           notify({
             title: "Erro ao exportar imagem",
@@ -772,18 +502,6 @@ export function RifaDetailPage() {
                 Sorteio em {formatDate(rifaData.rifa.data_sorteio)} | Valor por numero: {formatCurrency(rifaData.rifa.valor_numero)}
               </CardDescription>
             </div>
-            {rifaData.rifa.foto_premio && (
-              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100 shadow-md">
-                <img 
-                  src={rifaData.rifa.foto_premio} 
-                  alt={rifaData.rifa.descricao}
-                  className="h-full w-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-              </div>
-            )}
           </div>
         </CardHeader>
         <CardContent className="grid gap-3">

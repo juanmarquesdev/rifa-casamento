@@ -6,13 +6,13 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { useToast } from "../components/ui/toast";
@@ -28,8 +28,16 @@ type RifaFormState = {
   valorNumero: string;
   lucroDesejado: string;
   dataSorteio: string;
-  fotoPremio: string;
+  imagemRifa: string;
+  corRifa: string;
 };
+
+const defaultRifaColor = "#C8D2C6";
+
+function normalizeHexColor(value: string): string {
+  const normalized = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toUpperCase() : defaultRifaColor;
+}
 
 const initialForm: RifaFormState = {
   descricao: "",
@@ -37,7 +45,8 @@ const initialForm: RifaFormState = {
   valorNumero: "",
   lucroDesejado: "",
   dataSorteio: "",
-  fotoPremio: "",
+  imagemRifa: "",
+  corRifa: defaultRifaColor,
 };
 
 export function HomePage() {
@@ -85,9 +94,9 @@ export function HomePage() {
     try {
       const base64 = await imageToBase64(file, 1024);
       if (isEdit) {
-        setEditing((prev) => (prev ? { ...prev, foto_premio: base64 } : null));
+        setEditing((prev) => (prev ? { ...prev, imagem_rifa: base64 } : null));
       } else {
-        setForm((prev) => ({ ...prev, fotoPremio: base64 }));
+        setForm((prev) => ({ ...prev, imagemRifa: base64 }));
       }
     } catch (error) {
       notify({
@@ -108,12 +117,13 @@ export function HomePage() {
         valorNumero: Number(form.valorNumero),
         lucroDesejado: Number(form.lucroDesejado || 0),
         dataSorteio: form.dataSorteio,
-        fotoPremio: form.fotoPremio || undefined,
+        imagemRifa: form.imagemRifa || undefined,
+        corRifa: normalizeHexColor(form.corRifa),
       });
 
       notify({
         title: "Rifa criada",
-        description: `Foram gerados ${created.quantidadeNumeros} numeros de 4 digitos.`,
+        description: `Foram gerados ${created.quantidadeNumeros} numeros de 3 digitos.`,
         kind: "success",
       });
       setForm(initialForm);
@@ -140,7 +150,8 @@ export function HomePage() {
         valorNumero: editing.valor_numero,
         lucroDesejado: editing.lucro_desejado,
         dataSorteio: editing.data_sorteio,
-        fotoPremio: editing.foto_premio || undefined,
+        imagemRifa: editing.imagem_rifa || undefined,
+        corRifa: normalizeHexColor(editing.cor_rifa),
       });
       notify({ title: "Rifa atualizada", kind: "success" });
       setEditing(null);
@@ -232,17 +243,17 @@ export function HomePage() {
                   required
                 />
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium">Foto do prêmio (opcional, máx 1MB)</label>
+                  <label className="text-sm font-medium">Imagem da rifa (opcional, máx 1MB)</label>
                   <Input
                     type="file"
                     accept="image/*"
                     onChange={(e) => handleImageUpload(e, false)}
                     className="cursor-pointer"
                   />
-                  {form.fotoPremio && (
+                  {form.imagemRifa && (
                     <div className="relative mt-2 h-32 w-32 overflow-hidden rounded border">
                       <img 
-                        src={form.fotoPremio} 
+                        src={form.imagemRifa}
                         alt="Preview"
                         className="h-full w-full object-cover"
                       />
@@ -251,12 +262,31 @@ export function HomePage() {
                         variant="destructive"
                         size="sm"
                         className="absolute right-1 top-1 h-6 w-6 p-0"
-                        onClick={() => setForm((prev) => ({ ...prev, fotoPremio: "" }))}
+                        onClick={() => setForm((prev) => ({ ...prev, imagemRifa: "" }))}
                       >
                         ×
                       </Button>
                     </div>
                   )}
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-sm font-medium">Cor da rifa</label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="color"
+                      value={normalizeHexColor(form.corRifa)}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, corRifa: event.target.value.toUpperCase() }))
+                      }
+                      className="h-11 w-20 p-1"
+                    />
+                    <Input
+                      value={form.corRifa}
+                      onChange={(event) => setForm((prev) => ({ ...prev, corRifa: event.target.value }))}
+                      placeholder="#C8D2C6"
+                      maxLength={7}
+                    />
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button type="submit">Salvar</Button>
@@ -292,18 +322,6 @@ export function HomePage() {
               );
               return (
                 <Card key={rifa.id} className="overflow-hidden">
-                  {rifa.foto_premio && (
-                    <div className="aspect-video w-full overflow-hidden bg-slate-100">
-                      <img 
-                        src={rifa.foto_premio} 
-                        alt={rifa.descricao}
-                        className="h-full w-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  )}
                   <CardHeader>
                     <CardTitle className="line-clamp-1">{rifa.descricao}</CardTitle>
                     <CardDescription>Sorteio em {formatDate(rifa.data_sorteio)}</CardDescription>
@@ -336,7 +354,11 @@ export function HomePage() {
                       </Button>
                       <Button variant="secondary" size="sm" onClick={() => {
                         const dataSorteio = rifa.data_sorteio.split('T')[0] || rifa.data_sorteio;
-                        setEditing({ ...rifa, data_sorteio: dataSorteio });
+                        setEditing({
+                          ...rifa,
+                          data_sorteio: dataSorteio,
+                          cor_rifa: normalizeHexColor(rifa.cor_rifa),
+                        });
                       }}>
                         Editar
                       </Button>
@@ -410,17 +432,17 @@ export function HomePage() {
                 required
               />
               <div className="grid gap-1">
-                <label className="text-sm font-medium">Foto do prêmio (opcional, máx 1MB)</label>
+                <label className="text-sm font-medium">Imagem da rifa (opcional, máx 1MB)</label>
                 <Input
                   type="file"
                   accept="image/*"
                   onChange={(e) => handleImageUpload(e, true)}
                   className="cursor-pointer"
                 />
-                {editing.foto_premio && (
+                {editing.imagem_rifa && (
                   <div className="relative mt-2 h-32 w-32 overflow-hidden rounded border">
                     <img 
-                      src={editing.foto_premio} 
+                      src={editing.imagem_rifa}
                       alt="Preview"
                       className="h-full w-full object-cover"
                     />
@@ -429,12 +451,35 @@ export function HomePage() {
                       variant="destructive"
                       size="sm"
                       className="absolute right-1 top-1 h-6 w-6 p-0"
-                      onClick={() => setEditing((prev) => (prev ? { ...prev, foto_premio: null } : null))}
+                      onClick={() => setEditing((prev) => (prev ? { ...prev, imagem_rifa: null } : null))}
                     >
                       ×
                     </Button>
                   </div>
                 )}
+              </div>
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Cor da rifa</label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    value={normalizeHexColor(editing.cor_rifa)}
+                    onChange={(event) =>
+                      setEditing((prev) =>
+                        prev ? { ...prev, cor_rifa: event.target.value.toUpperCase() } : null
+                      )
+                    }
+                    className="h-11 w-20 p-1"
+                  />
+                  <Input
+                    value={editing.cor_rifa}
+                    onChange={(event) =>
+                      setEditing((prev) => (prev ? { ...prev, cor_rifa: event.target.value } : null))
+                    }
+                    placeholder="#C8D2C6"
+                    maxLength={7}
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button type="submit">Salvar alteracoes</Button>
