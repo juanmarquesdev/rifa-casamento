@@ -26,7 +26,7 @@ import {
   removerNumero,
 } from "../services/api";
 import type { NumeroRifa, Pessoa, RifaDetalheResponse } from "../types";
-import { formatCurrency, formatDate } from "../lib/utils";
+import { formatCurrency, formatDate, parseDateForDisplay } from "../lib/utils";
 
 const pageSize = 30;
 
@@ -413,9 +413,9 @@ export function RifaDetailPage() {
       }
       ctx.globalAlpha = 1;
 
-      const date = new Date(rifaData.rifa.data_sorteio);
-      const day = Number.isNaN(date.getTime()) ? "--" : String(date.getDate()).padStart(2, "0");
-      const month = Number.isNaN(date.getTime())
+      const date = parseDateForDisplay(rifaData.rifa.data_sorteio);
+      const day = !date ? "--" : String(date.getDate()).padStart(2, "0");
+      const month = !date
         ? "MES"
         : date
             .toLocaleDateString("pt-BR", { month: "short" })

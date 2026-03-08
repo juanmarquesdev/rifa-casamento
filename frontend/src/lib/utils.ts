@@ -12,9 +12,26 @@ export function formatCurrency(value: number): string {
   }).format(value);
 }
 
-export function formatDate(value: string): string {
+export function parseDateForDisplay(value: string): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T|\s)/);
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    return new Date(year, month - 1, day);
+  }
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatDate(value: string): string {
+  const date = parseDateForDisplay(value);
+  if (!date) {
     return value;
   }
   return date.toLocaleDateString("pt-BR");
