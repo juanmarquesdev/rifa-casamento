@@ -77,7 +77,7 @@ export type NumeroRifa = {
   id: string;
   numero: string;
   pessoa_id: string | null;
-  pago: number;
+  pago: boolean;
   valor_pago: number | null;
   vendido_em: string | null;
   criado_em: string;

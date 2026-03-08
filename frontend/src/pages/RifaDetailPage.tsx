@@ -8,22 +8,22 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from "../components/ui/select";
 import { useToast } from "../components/ui/toast";
 import {
-  associarNumero,
-  associarNumerosLote,
-  atualizarNumero,
-  buscarRifa,
-  listarPessoas,
-  listarNumeros,
-  removerAssociacaoNumero,
-  removerNumero,
+    associarNumero,
+    associarNumerosLote,
+    atualizarNumero,
+    buscarRifa,
+    listarPessoas,
+    listarNumeros,
+    removerAssociacaoNumero,
+    removerNumero,
 } from "../services/api";
 import type { NumeroRifa, Pessoa, RifaDetalheResponse } from "../types";
 import { formatCurrency, formatDate } from "../lib/utils";
@@ -148,7 +148,7 @@ export function RifaDetailPage() {
     try {
       await associarNumero(id, numero.id, payload);
       notify({ title: `Numero ${numero.numero} associado`, kind: "success" });
-      await Promise.all([loadRifa(), loadNumbers(page)]);
+      await Promise.all([loadRifa(), loadNumbers(page), loadPessoas()]);
     } catch (error) {
       notify({ title: "Erro ao associar numero", description: (error as Error).message, kind: "error" });
       throw error;
@@ -447,7 +447,7 @@ export function RifaDetailPage() {
     }
 
     try {
-      const nextPaid = numero.pago !== 1;
+      const nextPaid = !Boolean(numero.pago);
       await atualizarNumero(id, numero.id, {
         pago: nextPaid,
         valorPago: nextPaid ? numero.valor_pago ?? rifaData?.rifa.valor_numero ?? 0 : null,
