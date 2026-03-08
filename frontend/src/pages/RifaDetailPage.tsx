@@ -421,42 +421,44 @@ export function RifaDetailPage() {
             .toLocaleDateString("pt-BR", { month: "short" })
             .toUpperCase();
 
-      const dateBubbleSize = 130;
+      const dateBubbleSize = 165;
       const bubbleX = canvas.width - padding - dateBubbleSize;
       const bubbleY = padding + 8;
+      const bubbleCenterX = bubbleX + dateBubbleSize / 2;
+      const bubbleCenterY = bubbleY + dateBubbleSize / 2;
 
       ctx.fillStyle = "#8fa192";
       ctx.beginPath();
-      ctx.arc(bubbleX + dateBubbleSize / 2, bubbleY + dateBubbleSize / 2, dateBubbleSize / 2, 0, Math.PI * 2);
+      ctx.arc(bubbleCenterX, bubbleCenterY, dateBubbleSize / 2, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.strokeStyle = "#6f8373";
       ctx.lineWidth = 6;
       ctx.beginPath();
-      ctx.arc(bubbleX + dateBubbleSize / 2, bubbleY + dateBubbleSize / 2, dateBubbleSize / 2 - 5, 0, Math.PI * 2);
+      ctx.arc(bubbleCenterX, bubbleCenterY, dateBubbleSize / 2 - 5, 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.fillStyle = "#f7f6f1";
       ctx.textAlign = "center";
-      ctx.font = "bold 20px Trebuchet MS";
+      ctx.font = "bold 24px Trebuchet MS";
       drawCurvedText(
         ctx,
         "SORTEIO",
-        bubbleX + dateBubbleSize / 2,
-        bubbleY + dateBubbleSize / 2,
-        40,
+        bubbleCenterX,
+        bubbleCenterY,
+        dateBubbleSize * 0.33,
         -Math.PI / 38
       );
-      ctx.font = "bold 44px Trebuchet MS";
-      ctx.fillText(day, bubbleX + dateBubbleSize / 2, bubbleY + 77);
-      ctx.font = "bold 21px Trebuchet MS";
-      ctx.fillText(month, bubbleX + dateBubbleSize / 2, bubbleY + 105);
+      ctx.font = "bold 54px Trebuchet MS";
+      ctx.fillText(day, bubbleCenterX, bubbleY + dateBubbleSize * 0.6);
+      ctx.font = "bold 25px Trebuchet MS";
+      ctx.fillText(month, bubbleCenterX, bubbleY + dateBubbleSize * 0.82);
 
       ctx.fillStyle = "#2f3a33";
-      ctx.font = "58px Great Vibes";
+      ctx.font = "84px Great Vibes";
       ctx.textAlign = "center";
-      ctx.fillText("Rifa Casamento", canvas.width / 2, padding + 100);
-      ctx.fillText("Samara e Juan", canvas.width / 2, padding + 182);
+      ctx.fillText("Rifa Casamento", canvas.width / 2, padding + 108);
+      ctx.fillText("Samara e Juan", canvas.width / 2, padding + 206);
 
       ctx.fillStyle = "#4f5f54";
       ctx.font = "30px Georgia";
