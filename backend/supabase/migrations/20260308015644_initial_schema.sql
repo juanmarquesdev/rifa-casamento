@@ -44,12 +44,10 @@ CREATE TABLE sorteios (
     rifa_id UUID NOT NULL UNIQUE REFERENCES rifas(id) ON DELETE CASCADE,
     numero_rifa_id UUID NOT NULL REFERENCES numeros_rifa(id) ON DELETE RESTRICT,
     numero TEXT NOT NULL,
-    pessoa_id UUID REFERENCES pessoas(id) ON DELETE
-    SET
-        NULL,
-        vencedor_nome TEXT NOT NULL,
-        vencedor_telefone TEXT NOT NULL,
-        criada_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    pessoa_id UUID REFERENCES pessoas(id) ON DELETE SET NULL,
+    vencedor_nome TEXT NOT NULL,
+    vencedor_telefone TEXT NOT NULL,
+    criada_em TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- Índices para melhorar performance
@@ -64,14 +62,13 @@ CREATE INDEX idx_rifas_status ON rifas(status);
 CREATE INDEX idx_pessoas_nome ON pessoas(nome);
 
 -- Trigger para atualizar atualizada_em automaticamente em rifas
-CREATE
-OR REPLACE FUNCTION update_modified_column() RETURNS TRIGGER AS $ $ BEGIN NEW.atualizada_em = NOW();
-
-RETURN NEW;
-
+CREATE OR REPLACE FUNCTION update_modified_column() 
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.atualizada_em = NOW();
+    RETURN NEW;
 END;
-
-$ $ language 'plpgsql';
+$$ LANGUAGE 'plpgsql';
 
 CREATE TRIGGER update_rifas_modtime BEFORE
 UPDATE
